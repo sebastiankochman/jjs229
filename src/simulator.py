@@ -1,8 +1,8 @@
-# http://jakevdp.github.io/blog/2013/08/07/conways-game-of-life/
-
 import numpy as np
 
-
+# The following two implementations are copy-pasted from here:
+# http://jakevdp.github.io/blog/2013/08/07/conways-game-of-life/
+# TODO: couldn't find the licence - consider re-implementing from scratch.
 def life_step_1(X):
     """Game of life step using generator expressions"""
     nbrs_count = sum(np.roll(np.roll(X, i, 0), j, 1)
