@@ -1,0 +1,13 @@
+name: jjs229
+channels:
+  - defaults
+dependencies:
+  - matplotlib=2.2.2
+  - numpy=1.15.0
+  - pip=10.0.1
+  - python=3.6.6
+  - scikit-learn=0.23.2
+  - tensorflow=1.14.0
+  - scipy=1.1.0
+  - pillow
+  - pytest
