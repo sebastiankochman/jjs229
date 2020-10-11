@@ -215,20 +215,106 @@ class DynamicProg:
         return A
 
 
+class ProbaHeur:
+    """
+    Heuristic approach similar to DynamicProg. After finding initial plausible tile candidates, it just estimates
+    probability of each pixel being '1' separately.
+    """
+    def __init__(self, tile_graph=None):
+        self.G = tile_graph if tile_graph is not None else TileGraph()
+
+    def step_back(self, F, random=False, rseed=12345, verbose=False):
+        """
+        :param F: final bitmap (boolean matrix)
+        :return: previous bitmap (boolean matrix of the same shape as F)
+        """
+
+        # Sets of possible previous tiles per central pixel.
+        rs = np.random.RandomState(rseed)
+        # rs.choice(self.B[F[i][j]], size=100, replace=False) if random else
+        S = [[self.G.prev[F[i][j]].copy() for j in range(F.shape[1])] for i in range(F.shape[0])]
+
+        m = len(S)
+        n = len(S[0])
+        while True:
+            if verbose:
+                print('Loop!')
+            changed = False
+            for i in range(m):
+                for j in range(n):
+                    orig_size = len(S[i][j])
+                    S[i][j] = self.G.get_compatible_Y(S[i-1][j], S[i][j], self.G.verti)
+                    S[i][j] = self.G.get_compatible_Y(S[i][j-1], S[i][j], self.G.horiz)
+                    S[i][j] = self.G.get_compatible_X(S[i][j], S[i][(j+1)%n], self.G.horiz)
+                    S[i][j] = self.G.get_compatible_X(S[i][j], S[(i+1)%m][j], self.G.verti)
+                    if verbose:
+                        print(f'{i},{j}: {orig_size} -> {len(S[i][j])}')
+                    assert len(S[i][j]) > 0
+                    if len(S[i][j]) != orig_size:
+                        changed = True
+
+            if not changed:
+                break
+
+        # Pick the most probable pixel on each position.
+        A = np.zeros(F.shape, dtype=np.bool)
+        for i in range(m):
+            for j in range(n):
+                tiles = (self.G.tiles[tile_id] for tile_id in S[i][j])
+                proba = np.mean([t[1][1] for t in tiles])
+
+                # Set central bit of the tile to the result bitmap.
+                A[i][j] = proba > 0.5
+
+        return A
+
 
 if __name__ == '__main__':
     tic = time.perf_counter()
-    D = DFS()
+    D = ProbaHeur()
     toc = time.perf_counter()
     print(f'Initialization: {toc-tic:0.4f}s')
 
-    # 8x8 is already too much for DFS.
-    for n in range(3, 8):
-        print(f'{n}x{n}...')
-        X = np.random.choice([0, 1], size=(n, n))
-        for i in range(6):
-            X = life_step(X)
-        tic = time.perf_counter()
-        A = D.step_back(X, verbose=True)
-        toc = time.perf_counter()
-        print(f'Full step back: {toc-tic:0.4f}s')
+    for n in [3, 25]:
+        print('===========================')
+        print(f'Random boards {n}x{n}...')
+        for c in range(10):
+            X = np.random.choice([0, 1], size=(n, n))
+            for i in range(6):
+                X = life_step(X)
+            tic = time.perf_counter()
+            A = D.step_back(X, verbose=False)
+            toc = time.perf_counter()
+
+            sc = score(1, X, A)
+            print(f'Score: {sc}, time: {toc-tic:0.4f}s')
+
+    """
+    Sample output:
+    
+    Initialization: 4.6644s
+    ===========================
+    Random boards 3x3...
+    Score: 1.0, time: 0.4034s
+    Score: 1.0, time: 0.3469s
+    Score: 1.0, time: 0.3651s
+    Score: 1.0, time: 0.3402s
+    Score: 1.0, time: 0.3792s
+    Score: 1.0, time: 0.3578s
+    Score: 1.0, time: 0.3357s
+    Score: 1.0, time: 0.3418s
+    Score: 1.0, time: 0.4177s
+    Score: 1.0, time: 0.3123s
+    ===========================
+    Random boards 25x25...
+    Score: 0.7776, time: 99.5293s
+    Score: 0.7872, time: 93.6009s
+    Score: 0.776, time: 131.4938s
+    Score: 0.776, time: 95.1731s
+    Score: 0.848, time: 99.7578s
+    Score: 0.6928, time: 88.6676s
+    Score: 0.8624, time: 143.3049s
+    Score: 0.8, time: 113.0119s
+    Score: 0.7616, time: 118.0421s
+    Score: 0.7888, time: 91.3202s
+    """
