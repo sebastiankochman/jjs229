@@ -17,3 +17,5 @@ def generate_bitmaps(m, n):
             else:
                 A[i] = 1
                 break
+
+
