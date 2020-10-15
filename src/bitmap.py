@@ -32,6 +32,9 @@ def generate_all(m, n):
 def generate_test_set(set_size, seed, **kwargs):
     return generate_n_cases(False, set_size, seed, **kwargs)
 
+def generate_train_set(set_size, seed, **kwargs):
+    return generate_n_cases(True, set_size, seed, **kwargs)
+
 def generate_n_cases(train, set_size, seed, **kwargs):
     return itertools.islice(
         generate_inf_cases(train, seed, **kwargs),
