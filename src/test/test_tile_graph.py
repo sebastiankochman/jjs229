@@ -4,7 +4,7 @@ from tqdm import tqdm
 
 from tile_graph import DynamicProg, DFS, TileGraph
 from simulator import life_step
-from bitmap import generate_bitmaps
+from bitmap import generate_all
 from scoring import score
 
 tile_graph = TileGraph()
@@ -48,7 +48,7 @@ def test_step_back_simple(alg_class):
 def test_step_back_all_3x3(alg_class):
     alg = alg_class(tile_graph)
 
-    for Aorig in tqdm(generate_bitmaps(3,3)):
+    for Aorig in tqdm(generate_all(3,3)):
         X = np.copy(Aorig)
         X = life_step(X)
         A = alg.step_back(X)
