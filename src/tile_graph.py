@@ -3,7 +3,7 @@
 import numpy as np
 import time
 from simulator import life_step
-from bitmap import generate_bitmaps
+from bitmap import generate_all
 from scoring import score
 from tqdm import tqdm
 
@@ -14,7 +14,7 @@ class TileGraph:
     @staticmethod
     def preprocess():
         # Tiles - all possible titles 3x3
-        T = list(generate_bitmaps(3, 3))
+        T = list(generate_all(3, 3))
         assert (len(T) == 512)
 
         # Backward possibilities

@@ -12,3 +12,4 @@ dependencies:
   - pillow
   - pytest
   - tqdm
+  - tabulate
