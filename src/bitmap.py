@@ -11,7 +11,9 @@ def generate_all(m, n):
     """
     A = np.zeros(m * n, dtype=np.bool)
     for _ in range(2 ** (m * n)):
-        yield np.copy(A.reshape((m, n)))
+        a = np.copy(A.reshape((m, n)))
+        a.flags.writeable = False
+        yield a
         for i in range(A.size):
             if A[i]:
                 A[i] = 0
@@ -40,7 +42,7 @@ def generate_n_cases(train, set_size, seed, **kwargs):
         generate_inf_cases(train, seed, **kwargs),
         set_size)
 
-def generate_inf_cases(train, seed, board_size=25, min_dens=0.1, max_dens=0.99, warm_up=5, min_delta=1, max_delta=5, dtype=np.int):
+def generate_inf_cases(train, seed, board_size=25, min_dens=0.1, max_dens=0.99, warm_up=5, min_delta=1, max_delta=5, dtype=np.int, return_one_but_last=False):
     rs = np.random.RandomState(seed)
     zer = np.zeros(shape=(board_size, board_size), dtype=dtype)
     while True:
@@ -51,11 +53,15 @@ def generate_inf_cases(train, seed, board_size=25, min_dens=0.1, max_dens=0.99, 
 
         delta = rs.randint(min_delta, max_delta+1)
         stop = start.copy()
+        one_but_last = None
         for _ in range(delta):
+            one_but_last = stop
             stop = life_step(stop)
 
         if not (stop == zer).all():
-            if train:
+            if return_one_but_last:
+                yield delta, one_but_last, stop
+            elif train:
                 yield delta, start, stop
             else:
                 yield delta, stop

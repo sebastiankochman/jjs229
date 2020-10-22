@@ -3,7 +3,7 @@
 import numpy as np
 import time
 from simulator import life_step
-from bitmap import generate_all
+from bitmap import generate_all, generate_inf_cases
 from scoring import score
 from tqdm import tqdm
 
@@ -269,25 +269,191 @@ class ProbaHeur:
         return A
 
 
+class ProbaHeur2:
+    """
+    Heuristic approach similar to DynamicProg. After finding initial plausible tile candidates, it just estimates
+    probability of each pixel being '1' separately.
+    """
+    def __init__(self, tile_graph=None):
+        self.G = tile_graph if tile_graph is not None else TileGraph()
+
+        self.tile_to_id = {self.G.tiles[i].tobytes(): i for i in range(len(self.G.tiles))}
+
+        self.trans = np.zeros((len(self.G.tiles), len(self.G.tiles)))
+
+
+    def train(self, delta, start, stop):
+        X = start
+
+        m = X.shape[0]
+        n = X.shape[1]
+        for s in range(delta):
+            Y = life_step(X) if s < delta - 1 else stop
+            for i in range(m):
+                for j in range(n):
+                    a_id = self.__get_tile_id(X, i, j)
+                    b_id = self.__get_tile_id(Y, i, j)
+
+                    self.trans[a_id][b_id] += 1
+
+    def load_model(self, path):
+        with np.load(path) as data:
+            self.trans = data['arr_0']
+
+    def save_model(self, path):
+        np.savez(path, trans=self.trans)
+
+    def __get_tile_id(self, X, i, j):
+        a = np.array(np.roll(np.roll(X, 1-i, axis=0), 1-j, axis=1)[:3,:3], dtype=np.bool)
+        a_id = self.tile_to_id[a.tobytes()]
+        return a_id
+
+    def predict(self, delta, stop):
+        X = stop
+        for _ in range(delta):
+            X = self.step_back(X, verbose=False)
+        return X
+
+    def step_back(self, F, random=False, rseed=12345, verbose=False):
+        """
+        :param F: final bitmap (boolean matrix)
+        :return: previous bitmap (boolean matrix of the same shape as F)
+        """
+
+        m = F.shape[0]
+        n = F.shape[1]
+
+        # Sets of possible previous tiles per central pixel.
+        rs = np.random.RandomState(rseed)
+        # rs.choice(self.B[F[i][j]], size=100, replace=False) if random else
+        S = [[self.G.prev[F[i][j]].copy() for j in range(n)] for i in range(m)]
+
+        f_tiles = [[self.__get_tile_id(F, i, j) for j in range(n)] for i in range(m)]
+
+        def narrow_down():
+            ranking = []
+            for i in range(m):
+                for j in range(n):
+                    if len(S[i][j]) > 1:
+                        b_id = f_tiles[i][j]
+                        # transition counts to b:
+                        trans_counts = np.array([self.trans[s, b_id] for s in S[i][j]])
+
+                        # TODO: hmm it's interesting I haven't seen div by zero here?
+                        trans_p = trans_counts / np.sum(trans_counts)
+                        max_s_k = np.argmax(trans_p)
+
+                        # TODO: we also use p == 0... should we change that?
+                        max_p = S[i][j][max_s_k]
+                        ranking.append((max_p,i,j,max_s_k))
+
+            ranking.sort(reverse=True)
+
+            if verbose:
+                print(f'{len(ranking)}')
+
+            for r_idx, (p,i,j,k) in enumerate(ranking):
+                S[i][j] = [S[i][j][k]]
+                if np.abs(p - ranking[0][0]) > 0.0001 and r_idx > len(ranking)//2:
+                    break
+
+            return len(ranking) > 0
+
+        while narrow_down():
+            if verbose:
+                print('Loop!')
+
+            for _ in range(2):
+                changed = False
+
+                # narrow down tile based on trans
+                for i in range(m):
+                    for j in range(n):
+                        orig_size = len(S[i][j])
+                        S[i][j] = self.G.get_compatible_Y(S[i-1][j], S[i][j], self.G.verti)
+                        S[i][j] = self.G.get_compatible_Y(S[i][j-1], S[i][j], self.G.horiz)
+                        S[i][j] = self.G.get_compatible_X(S[i][j], S[i][(j+1)%n], self.G.horiz)
+                        S[i][j] = self.G.get_compatible_X(S[i][j], S[(i+1)%m][j], self.G.verti)
+                        #if verbose:
+                        #    print(f'{i},{j}: {orig_size} -> {len(S[i][j])}')
+                        if len(S[i][j]) != orig_size:
+                            changed = True
+
+                if not changed:
+                    break
+
+        # Pick the most probable pixel on each position.
+        A = np.zeros(F.shape, dtype=np.bool)
+        for i in range(m):
+            for j in range(n):
+                #assert len(S[i][j]) <= 1
+                pixel = self.G.tiles[S[i][j][0]][1][1] if len(S[i][j]) != 0 else False
+                # Set central bit of the tile to the result bitmap.
+                A[i][j] = pixel
+
+        return A
+
+
+def train_loop(model_name, learner, early_stop_window=100, rseed=9342184):
+    errors = []
+    latencies = []
+    best_mean_err = 1.0
+    best_i = -1
+    for i, (delta, start, stop) in enumerate(generate_inf_cases(True, rseed)):
+        tic = time.perf_counter()
+        A = learner.predict(delta, stop)
+        toc = time.perf_counter()
+
+        err = 1 - score(delta, A, stop)
+        errors.append(err)
+
+        latency = toc - tic
+        latencies.append(latency)
+
+        mean_err = np.mean(errors)
+        mean_latency = np.mean(latencies)
+
+        print(f'Error: mean {mean_err}, cur {err}; latency: mean {mean_latency:0.4f}s, cur {latency:0.4f}; delta {delta}, density: {np.mean(stop)}')
+
+        if mean_err < best_mean_err:
+            best_mean_err = mean_err
+            best_i = i
+            file_path = f'{model_name}_{i:05}'
+            print(f'    Best model - saving {file_path}...')
+            learner.save_model(file_path)
+        elif i-best_i > early_stop_window:
+            print(f"Haven't found a better model for more than {early_stop_window} iterations - terminating early.")
+            print(f"Best iteration: {best_i}, mean error: {best_mean_err}")
+            break
+
+        learner.train(delta, start, stop)
+
+
 if __name__ == '__main__':
     tic = time.perf_counter()
-    D = ProbaHeur()
+    D = ProbaHeur2()
     toc = time.perf_counter()
     print(f'Initialization: {toc-tic:0.4f}s')
 
-    for n in [3, 25]:
+    train_loop('proba_heur2', D)
+
+    """
+    for n in [25]:
         print('===========================')
         print(f'Random boards {n}x{n}...')
-        for c in range(10):
-            X = np.random.choice([0, 1], size=(n, n))
-            for i in range(6):
-                X = life_step(X)
+        for delta, start, stop in generate_inf_cases(True, 9342184):
             tic = time.perf_counter()
-            A = D.step_back(X, verbose=False)
+            A = stop.copy()
+            for i in range(delta):
+                A = D.step_back(A, verbose=False)
             toc = time.perf_counter()
 
-            sc = score(1, X, A)
-            print(f'Score: {sc}, time: {toc-tic:0.4f}s')
+            err = 1 - score(delta, A, stop)
+            errors.append(err)
+            print(f'Acc err: {np.mean(errors)}, now: {err}, time: {toc-tic:0.4f}s; delta: {delta}, dens: {np.mean(stop)}')
+
+            D.train(delta, start, stop)
+    """
 
     """
     Sample output:
