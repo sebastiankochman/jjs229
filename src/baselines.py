@@ -23,7 +23,8 @@ def sim_density(delta, stop):
     return stop if (stop == n).all() else np.zeros_like(stop)
 
 
-def random_tries(delta, stop):
+def likely_starts(delta, stop):
+    # Just test a couple of "likely" starting boards and pick the best one.
     starts = [
         np.zeros_like(stop),
         stop,

@@ -37,8 +37,8 @@ if __name__ == '__main__':
     models = []
 
     if args.all or args.baselines:
-        model_names.extend(['const_zeros', 'mirror', 'random_tries'])
-        models.extend([baselines.const_zeros, baselines.mirror, baselines.random_tries])
+        model_names.extend(['const_zeros', 'mirror', 'likely_starts'])
+        models.extend([baselines.const_zeros, baselines.mirror, baselines.likely_starts])
 
     if args.proba_heur2_path is not None:
         for path in args.proba_heur2_path:
