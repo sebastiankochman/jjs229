@@ -8,9 +8,14 @@
 \usepackage{comment}
 \usepackage{textcomp}
 \usepackage{xcolor}
+\usepackage{listings}
 \def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
     T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
     
+\newcommand\todo[1]{\textcolor{red}{#1}}
+
+\renewcommand{\thesection}{\arabic{section}}
+\def\thesectiondis{\thesection.} \def\thesubsectiondis{\thesectiondis\arabic{subsection}.} \def\thesubsubsectiondis{\thesubsectiondis\arabic{subsubsection}.} \def\theparagraphdis{\thesubsubsectiondis\arabic{paragraph}.}
 
 \usepackage{hyperref}
 \hypersetup{
@@ -23,7 +28,7 @@
 \begin{document}
 
 \title{Reversing Conway's Game of Life\\
-{\footnotesize CS229 Fall 2020 Project Proposal \hspace{2cm}
+{\footnotesize CS229 Fall 2020 Project Milestone Report \hspace{2cm}
 Project category: General Machine Learning}
 }
 
@@ -44,9 +49,9 @@ Project category: General Machine Learning}
 
 \maketitle
 
-%\begin{abstract}
-%The Game of Life is a cellular automaton created by the mathematician John Conway. The game consists of a board of cells that are either live or dead. One creates an initial configuration of these live/dead states and observes how it evolves \cite{b1} \cite{b2} following deterministic rules. The goal of this project is to use machine learning to reverse the game by finding one of the potentially many possible preceding states from a given final state.
-%\end{abstract}
+\begin{abstract}
+The Game of Life is a cellular automaton created by the mathematician John Conway. The game consists of a board of cells that are either live or dead. One creates an initial configuration of these live/dead states and observes how it evolves \cite{b1} \cite{b2} following deterministic rules. The goal of this project is to use machine learning to reverse the game by finding one of the potentially many possible preceding states from a given final state.
+\end{abstract}
 
 \begin{comment}
 \begin{IEEEkeywords}
@@ -55,7 +60,7 @@ convolutional neural networks, Kaggle competition, game, simulators
 \end{comment}
 
 \section{Motivation}
-The idea for this project came from a Kaggle competition \cite{b1} where we are to predict the {\it starting state} of 25x25 board given the state of the board after a number of evolutions (between 1 to 5) following the rules prescribed in Conway's Game of Life. The data to learn from consists of the {\it terminal states}, the corresponding starting states (which are the labels), and the number of evolutions applied to go from the latter to the former. Our motivation to take on this project stems from some unique challenges and advantages it presents. In terms of challenges, this problem of reversing Conway's Game of Life does not fit into the mold of a standard regression or classification problem where one can immediately fit a model; instead, some ingenuity is needed to frame the problem into one amendable to ML techniques. In terms of advantages, the setting of this problem is in an idealized world where we have access to the data generator; so the key to learning a good model relies less on data processing, cleaning, feature engineering, hyperparameter tuning, but instead depends more on a deep understand of the problem and creative application of the modeling techniques that can model the relationship between the starting states and the terminal states. 
+The idea for this project came from a Kaggle competition \cite{b1} where we are to predict the {\it starting state} of 25x25 board given the state of the board after a number of evolutions (between 1 to 5) following the rules prescribed in Conway's Game of Life. The board is ``wrapped'', so technically the state is infinitely large, with a recurring pattern of size 25x25. The data to learn from consists of the {\it terminal states}, the corresponding starting states (which are the labels), and the number of evolutions applied to go from the latter to the former. Our motivation to take on this project stems from some unique challenges and advantages it presents. In terms of challenges, this problem of reversing Conway's Game of Life does not fit into the mold of a standard regression or classification problem where one can immediately fit a model; instead, some ingenuity is needed to frame the problem into one amendable to ML techniques. In terms of advantages, the setting of this problem is in an idealized world where we have access to the data generator; so the key to learning a good model relies less on data processing, cleaning, feature engineering, hyperparameter tuning, but instead depends more on a deep understand of the problem and creative application of the modeling techniques that can model the relationship between the starting states and the terminal states. 
 
 \section{Method}
 
@@ -66,7 +71,7 @@ Secondly, we can use the fact that it is easy to simulate the Game of Life forwa
 Using these facts, we can divide methods to explore along three dimensions:
 
 \begin{enumerate}
-    \item Model architectures used to learning representions of the board state -- we plan to experiment with fully-connected neural networks, convolutional neural networks, and graph convolutional neural networks. We are considering techniques to combat the problem of high sample complexity by sharing weights between layers or dividing input and/or output into smaller chunks (e.g. 3x3).
+    \item Model architectures used to learning representions of the board state -- we plan to experiment mostly with convolutional neural networks and its variations (like graph convolutional neural networks).
     
     \item Learning paradigm -- supervised learning using examples generated by a simulator will be our primary machine learning paradigm. We also plan to explore some more speculative ideas, such as variational autoencoder, reinforcement learning, and generative adversarial networks (GANs).
     
@@ -76,12 +81,84 @@ Using these facts, we can divide methods to explore along three dimensions:
     
 \end{enumerate}
 
-\section{Intended Experiments}
+\subsection{Data generation}
+Since we have access to a simulator stepping the game forward, we don't have to limit ourselves to static data sets provided by Kaggle.
+
+We have built a simple data generator following the rules specified by the competition \cite{b1}:
+
+\begin{itemize}
+\item An initial board is chosen by filling the board with a random density between 1\% full (mostly zeros) and 99\% full (mostly ones).
+\item This initial board is evolved 5 steps.
+\item The starting board's state is recorded after the 5 ``warm-up steps''. This becomes the {\it start} matrix.
+\item The starting board is then evolved $\delta$ steps. $\delta$ is chosen to be uniformly random between $1$ and $5$ (inclusive). If the stopping board turns out to be empty, the game is discarded.
+\item The stopping board's state is then recorded as the {\it stop} matrix.
+\end{itemize}
+
+The {\it stop} matrix and $\delta$ are inputs to the prediction function (where often just {\it stop} is the input to an ML model, and $\delta$ controls how many times the model prediction should be called). The {\it start} matrix is one of (often many) correct outputs and can be used during training.
+
+Using such generator, we can train on a hypothetically infinitely large data set. It's easy to generate many validation sets, so we don't have to worry about overfitting out experiments to a validation set. The generator accepts arguments like: size of the board, $\delta_{\min}$, $\delta_{\max}$, range of density etc., so we can also easily generate scenarios outside the scope of the Kaggle's competition - this can be particularly useful while analyzing our methods in simpler settings. Data generator is initialized with a random seed, to ensure reproducible results.
+
+\subsection{Evaluation}
+For model evaluation, we will use the evaluation criterion defined in the Kaggle competition, which is the mean absolute error of the terminal state reach by our model's prediction and the actual terminal state. Mathematically, this is given by $$\frac{\sum_{i=1}^{m}\sum_{j=1}^{n}|y_{j}^{(i)} - \hat y_{j}^{(i)}|}{m \times n},$$ where $y_{j}^{(i)}$ is the value of the $j$th cell in the $i$th ground truth terminal state, and $\hat y_{j}^{(i)}$ is the value of the $j$th cell from the $i$th predicted starting board after evolution, $m$ is number of examples in a data set and $n$ is number of pixels in the board ($625$ by default).
+
+\section{Preliminary experiments}
+
+\begin{table}[]
+    \centering
+    \begin{tabular}{|c|c|c|}
+    \hline
+    Model & Multi-step mean error ($\delta \in \{1,\dots,5\}$)  & Single-step mean error ($\delta = 1$) \\
+    \hline
+    Constant zeros & 15.50\% & 15.50\% \\
+    Likely starts & 14.95\% & 13.55\% \\
+    CNN v1 & 14.43\% & 10.68\% \\
+    \hline
+    \end{tabular}
+    \caption{Evaluation results on a validation set with 10k examples.}
+    \label{tab:eval_results}
+\end{table}
+
+\subsection{Trivial baselines}
+We first established a couple of trivial baselines to get a sense for minimal metrics that more sophisticated approaches should beat:
+\begin{itemize}
+    \item {\it Constant zeros} - returning always a board of zeros.
+    \item {\it Likely starts} - this simple heuristic tries forward simulation (for $\delta$ steps) from $3$ ``likely'' starting boards (constant zeros, a board equal to {\it stop}, and a single step forward from {\it stop}), then picks the one which achieves the highest score (per out evaluation metric) in the current example.
+\end{itemize}
+
+\subsection{Simple Convolutional Neural Network}
+
+We have tried a few simple CNN architectures. The best results so far have been achieved with the following sequence of layers:
+
+\begin{itemize}
+    \item Conv2D: filter 5x5, output channels 16, activation ReLU
+    \item Conv2D: filter 5x5, output channels 8, activation ReLU
+    \item Conv2D: filter 3x3, output channels 4, activation ReLU
+    \item Conv2D: filter 3x3, output channels 1, activation sigmoid
+\end{itemize}
+
+All of the layers use padding with zeros, so the output tensor is of the same size as input - 25x25, with 1 channel. We used the Adam optimizer with default hyper-parameters in Tensorflow and the binary cross-entropy loss. The model reported in table \ref{tab:eval_results} was obtained after training on 71,680 examples (randomly generated, never repeated) with batch size 2048.
+
+It's worth noting that the out-of-box padding techniques offered by Tensorflow - {\it valid} (no padding) and {\it same} (padding with zeros) - do not fit our problem well, where the board is ``wrapped'' (i.e., it's an infinitely large board with recurrent pattern of size 25x25). Interestingly, PyTorch offers padding which fits our scenario well - {\it circular}. However, after translating exactly the same CNN architecture to PyTorch, we haven't observed any metric benefit yet, and the results are even slightly worse (with and without the {\it circular} padding). Investigating this further will be one of our next steps.
+
+The reader may notice lack of pooling layers in our CNN architecture, which is also atypical for most scenarios where CNNs are used. While we definitely want to experiment with pooling layers, they cannot be applied in a trivial way, for two reasons: the output
+
+\subsection{Algorithmic approach: tile graph}
+We have explored possible algorithmic solutions to the problem. The motivation was to establish stronger baselines, but also to explore ideas that could potentially benefit from Machine Learning in a hybrid solution.
+
+We are not aware of an accurate solution to the problem with polynomial computational complexity. However, we have come up with a heuristic algorithm inspired by graph theory and dynamic programming, which we believe could be further improved and extended with ML.
+
+In this approach, we observe that the value of any particular pixel $B^{(\text{stop})}_{ij}$ depends only on the value of the same pixel on the previous board and its closest neighbors: $B^{(-1)}_{i+a,j+b}$ where $a, b \in \{-1, 0, 1\}$. Hence, we can easily pre-compute a list of all 3x3 {\it tiles} that are possible predecessors of bit $0$ and $1$. There are just $2^9=512$ such tiles.
+
+We also observe [...]
+
+\section{Next steps}
+
+[this section is currently copied from proposal, needs re-writing]
 
 As outlined the previous sections, our initial experiments are supervised learning algorithms using either a multi-layer perceptron or a CNN (or possible a GCN) to predict the starting state pixel-by-pixel. We also plan to perform experiments using generative models (something along the lines of learning a joint probability distribution $\mathbf P(x, y)$ where $x, y$ are pixels/regions in the starting and terminal state respectively). We also have some other ideas around RL and GAN that we may explore time permitting. As we are a team of three, we plan to each take on an idea to experiment with for the first two weeks and settle on the one that is most promising once we have some results.
 
-For model evaluation, we will use the evaluation criterion defined in the Kaggle competition, which is the mean absolute error of the terminal state reach by our model's prediction and the actual terminal state. Mathematically, this is given by $$\frac{\sum_{i=1}^{m}\sum_{j=1}^{n}|y_{j}^{(i)} - \hat y_{j}^{(i)}|}{m \times n},$$ where $y_{j}^{(i)}$ is the value of the $j$th cell in the $i$th ground truth terminal state, and $\hat y_{j}^{(i)}$ is the value of the $j$th cell from the $i$th predicted starting board after evolution.
-
+\section{Contributions}
+[...]
 
 \begin{thebibliography}{00}
 \bibitem{b1} ``Conway's Reverse Game of Life 2020,'' \url{https://www.kaggle.com/c/conways-reverse-game-of-life-2020/overview}

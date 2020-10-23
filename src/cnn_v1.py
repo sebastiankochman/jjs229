@@ -3,6 +3,7 @@ import tensorflow as tf
 from tensorflow.keras import datasets, layers, models
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 
 import bitmap
 import scoring
@@ -17,8 +18,9 @@ def grouper(iterable, n, fillvalue=None):
 
 # TODO: implement circular padding "by hand"
 model = models.Sequential()
-model.add(layers.Conv2D(9, (3, 3), activation='relu', input_shape=(25, 25, 1), padding='same'))
-model.add(layers.Conv2D(9, (3, 3), activation='relu', input_shape=(25, 25, 1), padding='same'))
+model.add(layers.Conv2D(16, (5, 5), activation='relu', input_shape=(25, 25, 1), padding='same'))
+model.add(layers.Conv2D(8, (5, 5), activation='relu', input_shape=(25, 25, 1), padding='same'))
+model.add(layers.Conv2D(4, (3, 3), activation='relu', input_shape=(25, 25, 1), padding='same'))
 model.add(layers.Conv2D(1, (3, 3), activation='sigmoid', padding='same'))
 #model.add(layers.MaxPooling2D((2, 2)))
 #model.add(layers.Conv2D(64, (3, 3), activation='relu'))
@@ -32,6 +34,10 @@ model.add(layers.Conv2D(1, (3, 3), activation='sigmoid', padding='same'))
 model.compile(optimizer='adam',
               loss="binary_crossentropy",
               metrics=['accuracy'])
+
+model.summary()
+print('====')
+print(model.summary())
 
 def predict(deltas_batch, stops_batch):
     max_delta = np.max(deltas_batch)
@@ -55,6 +61,13 @@ val_set = bitmap.generate_test_set(set_size=10000, seed=9568382)
 deltas_val, stops_val = cnnify_batch(zip(*val_set))
 ones_val = np.ones_like(deltas_val)
 
+multi_step_errors = []
+one_step_errors = []
+best_multi_step_error = 1.0
+best_multi_step_idx = -1
+best_one_step_error = 1.0
+best_one_step_idx = -1
+
 for i, batch in enumerate(grouper(bitmap.generate_inf_cases(True, 432341, return_one_but_last=True), 2048)):
     deltas, one_but_lasts, stops = zip(*batch)
 
@@ -62,12 +75,16 @@ for i, batch in enumerate(grouper(bitmap.generate_inf_cases(True, 432341, return
     one_but_lasts_batch = np.expand_dims(one_but_lasts, -1)
     stops_batch = np.expand_dims(stops, -1)
 
-    if i % 5 == 0:
+    if i % 10 == 0:
         multi_step_pred_batch = predict(deltas_val, stops_val)
         multi_step_mean_err = 1 - np.mean(scoring.score_batch(deltas_val, multi_step_pred_batch, stops_val))
 
         one_step_pred_batch = model.predict(stops_val) > 0.5
         one_step_mean_err = 1 - np.mean(scoring.score_batch(ones_val, one_step_pred_batch, stops_val))
         print(f'Mean error: multi-step {multi_step_mean_err}, one step {one_step_mean_err}')
+
+        #if multi_step_mean_err < best_multi_step_error:
+        #    best_multi_step_error = multi_step_mean_err
+        #    best_multi_step_idx =
 
     model.fit(stops_batch, one_but_lasts_batch, epochs=1)
