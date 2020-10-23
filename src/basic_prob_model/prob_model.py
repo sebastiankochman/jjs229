@@ -128,8 +128,8 @@ if __name__ == '__main__':
         outfile.write('\n')
         for i in range(N):
             start_board, stop_board = generate()
-            row = ', '.join(map(str, start_board.flatten())) + ', '
-            row += ', '.join(map(str, stop_board.flatten())) + '\n'
+            row = ','.join(map(str, start_board.flatten())) + ','
+            row += ','.join(map(str, stop_board.flatten())) + '\n'
             outfile.write(row)
     
     model = create_prob_model(new_data_path, model_path)
