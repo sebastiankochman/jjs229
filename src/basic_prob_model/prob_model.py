@@ -125,6 +125,7 @@ if __name__ == '__main__':
         # Write column header
         columns = ['start_{}'.format(i) for i in range(625)] + ['stop_{}'.format(i) for i in range(625)]
         outfile.write(','.join(columns))
+        outfile.write('\n')
         for i in range(N):
             start_board, stop_board = generate()
             row = ', '.join(map(str, start_board.flatten())) + ', '
