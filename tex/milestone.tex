@@ -140,7 +140,14 @@ All of the layers use padding with zeros, so the output tensor is of the same si
 
 It's worth noting that the out-of-box padding techniques offered by Tensorflow - {\it valid} (no padding) and {\it same} (padding with zeros) - do not fit our problem well, where the board is ``wrapped'' (i.e., it's an infinitely large board with recurrent pattern of size 25x25). Interestingly, PyTorch offers padding which fits our scenario well - {\it circular}. However, after translating exactly the same CNN architecture to PyTorch, we haven't observed any metric benefit yet, and the results are even slightly worse (with and without the {\it circular} padding). Investigating this further will be one of our next steps.
 
-The reader may notice lack of pooling layers in our CNN architecture, which is also atypical for most scenarios where CNNs are used. While we definitely want to experiment with pooling layers, they cannot be applied in a trivial way, for two reasons: the output
+The reader may notice lack of pooling layers in our CNN architecture, which is also atypical for most scenarios where CNNs are used. While we definitely want to experiment with pooling layers, they cannot be applied in a trivial way, for two reasons:
+\begin{itemize}
+    \item The output dimensions need to match input dimensions in our problem, so any dimensions reduced by pooling would need to be recreated via generation layers.
+
+    \item Pooling is great at reducing local state to a global state. In case of our problem though, while global state may be certainly helpful, the local state is very important for accurate predictions too.
+\end{itemize}
+
+We are exploring ways to concatenate output obtained from pooling layers (carrying embedding of the ``global'' state), with the output obtained from filters with no pooling, to find the compromise.
 
 \subsection{Algorithmic approach: tile graph}
 We have explored possible algorithmic solutions to the problem. The motivation was to establish stronger baselines, but also to explore ideas that could potentially benefit from Machine Learning in a hybrid solution.
