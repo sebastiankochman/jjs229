@@ -42,7 +42,7 @@ def generate_n_cases(train, set_size, seed, **kwargs):
         generate_inf_cases(train, seed, **kwargs),
         set_size)
 
-def generate_inf_cases(train, seed, board_size=25, min_dens=0.1, max_dens=0.99, warm_up=5, min_delta=1, max_delta=5, dtype=np.int, return_one_but_last=False):
+def generate_inf_cases(train, seed, board_size=25, min_dens=0.01, max_dens=0.99, warm_up=5, min_delta=1, max_delta=5, dtype=np.int, return_one_but_last=False):
     rs = np.random.RandomState(seed)
     zer = np.zeros(shape=(board_size, board_size), dtype=dtype)
     while True:
