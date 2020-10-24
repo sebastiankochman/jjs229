@@ -53,5 +53,5 @@ def test_step_back_all_3x3(alg_class):
         X = life_step(X)
         A = alg.step_back(X)
 
-        sc = score(1, X, A)
+        sc = score(1, A, X)
         assert sc == 1.0
