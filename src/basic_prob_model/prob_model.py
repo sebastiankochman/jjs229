@@ -84,6 +84,7 @@ def predict(input_data, model, num_tries=5):
     deltas = df.delta.to_list()
 
     print("Making predictions on the test data")
+    test_mae = 0
     for i in tqdm(range(n)):
         best_guess = np.zeros((25, 25), dtype=int)
         mae = float('inf')
@@ -104,11 +105,13 @@ def predict(input_data, model, num_tries=5):
             if mae_ < mae:
                 best_guess = guess
                 mae = mae_
+        test_mae += mae
         predictions[i] = best_guess
         
         if i % 100 == 0 and i > 0:
             print("iteration: {}, mae: {}".format(i, mae))
-            
+    
+    print("MAE on test dataset: {}".format(test_mae / n))
     df_ = df[['id']].copy()
     predictions = predictions.reshape(n, 625)
     for i in range(625):
