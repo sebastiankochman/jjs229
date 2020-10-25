@@ -37,7 +37,7 @@ if __name__ == '__main__':
         for _ in range(delta):
             start_board = forward(start_board)
      
-        mae = ((start_board.view(25, 25) > 0.5).int() != stop_board).sum()
+        mae = ((start_board.view(25, 25) > 0.5).int() != stop_board).sum().item()
         if mae > 0:
             print("*** The CNN failed to reach the stop board from start board in {} steps ***".format(delta))
         total_mae += mae
