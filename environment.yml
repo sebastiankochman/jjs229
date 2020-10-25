@@ -1,11 +1,14 @@
 name: jjs229
 channels:
   - defaults
+  - pytorch
 dependencies:
   - matplotlib=2.2.2
   - numpy=1.15.0
+  - pandas=1.0.5
   - pip=10.0.1
   - python=3.6.6
+  - pytorch=1.6.0=py3.6_cuda102_cudnn7_0
   - scikit-learn=0.23.2
   - tensorflow=1.14.0
   - scipy=1.1.0
@@ -13,3 +16,5 @@ dependencies:
   - pytest
   - tqdm
   - tabulate
+  - pip:
+    - poutyne==1.0.0
