@@ -16,5 +16,6 @@ dependencies:
   - pytest
   - tqdm
   - tabulate
+  - jupyter
   - pip:
     - poutyne==1.0.0
