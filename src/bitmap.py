@@ -1,5 +1,6 @@
 import numpy as np
 import itertools
+import torch.utils.data
 from simulator import life_step
 
 def generate_all(m, n):
@@ -65,3 +66,20 @@ def generate_inf_cases(train, seed, board_size=25, min_dens=0.01, max_dens=0.99,
                 yield delta, start, stop
             else:
                 yield delta, stop
+
+
+class ConwayIterableDataset(torch.utils.data.IterableDataset):
+    def __init__(self, base_seed):
+        super(ConwayIterableDataset).__init__()
+        self.base_seed = base_seed
+
+    def __iter__(self):
+        worker_info = torch.utils.data.get_worker_info()
+        if worker_info is None:  # single-process data loading, return the full iterator
+            seed = self.base_seed
+        else:  # in a worker process
+            # split workload
+            worker_id = worker_info.id
+            seed = self.base_seed + worker_id
+        for delta, prev, stop in generate_inf_cases(True, seed, return_one_but_last=True):
+            yield np.array(np.reshape(stop, (1,25,25)), dtype=np.float32), delta
