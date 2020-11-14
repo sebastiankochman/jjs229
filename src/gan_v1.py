@@ -1,3 +1,10 @@
+"""
+Simple GAN based on this example:
+https://github.com/pytorch/examples/blob/master/dcgan/main.py
+with just minimal modifications to use our Conway GoL boards.
+It just tries to generate boards that look similar to GoL boards - does not generate previous board yet.
+"""
+
 from __future__ import print_function
 import argparse
 import os
@@ -136,7 +143,8 @@ class Generator(nn.Module):
             nn.ReLU(True),
             # state size. (ngf) x 13 x 13
             nn.ConvTranspose2d(    ngf,      nc, 5, 2, 2, bias=False),
-            nn.Tanh()
+            #nn.Tanh()
+            nn.Sigmoid()
             # state size. (nc) x 25 x 25
         )
 
@@ -233,7 +241,7 @@ for i, data in enumerate(dataloader, 0):
 
     # train with fake
     noise = torch.randn(batch_size, nz, 1, 1, device=device)
-    fake = netG(noise)
+    fake = netG(noise) #.round()
     label.fill_(fake_label)
     output = netD(fake.detach())
     errD_fake = criterion(output, label)
@@ -260,7 +268,7 @@ for i, data in enumerate(dataloader, 0):
         vutils.save_image(real_cpu,
                 '%s/real_samples.png' % opt.outf,
                 normalize=True)
-        fake = netG(fixed_noise)
+        fake = netG(fixed_noise) #.round()
         vutils.save_image(fake.detach(),
                 '%s/fake_samples_epoch_%03d.png' % (opt.outf, epoch),
                 normalize=True)

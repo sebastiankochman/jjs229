@@ -1,12 +1,11 @@
 """
-GAN generating PREVIOUS board:
- * discriminator takes two boards as input (starting board [which may be real or fake] and stopping board [always real])
- * generator takes stopping board in addition to the latent variable "z" as input, and generates starting board
+Half-GAN, i.e. generator + Johnson's forward network. Created this in a separate file, because discriminator output too
+different and there would be too many "if" conditions otherwise.
 
 Results:
-The fake bitmaps look pretty good (e.g. I pasted one after 80 epochs of training, so after "seeing" 0.5M examples), but
-unfortunately it does not translate into MAE on our problem, where it's usually ~0.17-0.20 (so worse than trivial baselines).
-It's possible that longer training on GPU and some hyper-param tuning would help but not sure.
+With sigmoid activation in the last layer of the generator, the network doesn't learn anything.
+With tanh, it's learning something, but MAE seems to be always 0.14864999999999995 - which means, I believe, that
+we're predicting all "zeros" or all "ones".
 """
 
 from __future__ import print_function
@@ -27,6 +26,7 @@ import numpy as np
 from bitmap import generate_inf_cases
 import bitmap
 import scoring
+from forward_prediction import forward_model
 
 
 parser = argparse.ArgumentParser()
@@ -74,7 +74,8 @@ if torch.cuda.is_available() and not opt.cuda:
 shuffle=True
 if opt.dataset == 'gen':
     def process_board(board):
-        board = board if opt.sigmoid else np.where(board==0, -1, board)
+        # TODO: When we do this, it messes up loss...
+        # board = board if opt.sigmoid else np.where(board==0, -1, board)
         return np.array(np.reshape(board, (1, 25, 25)), dtype=np.float32)
 
     class DataGenerator(torch.utils.data.IterableDataset):
@@ -232,7 +233,8 @@ class Generator(nn.Module):
             nn.ReLU(True),
             # state size. (ngf) x 13 x 13
             nn.ConvTranspose2d(    ngf,      nc, 5, 2, 2, bias=False),
-            nn.Sigmoid() if opt.sigmoid else nn.Tanh()
+            nn.Tanh()
+            #nn.Sigmoid()
             # state size. (nc) x 25 x 25
         )
 
@@ -258,89 +260,17 @@ if opt.netG != '':
     netG.load_state_dict(torch.load(opt.netG))
 print(netG)
 
-# torch.nn.Conv2d(
-#   in_channels: int,
-#   out_channels: int,
-#   kernel_size: Union[T, Tuple[T, T]],
-#   stride: Union[T, Tuple[T, T]] = 1,
-#   padding: Union[T, Tuple[T, T]] = 0,
-#   dilation: Union[T, Tuple[T, T]] = 1,
-#   groups: int = 1,
-#   bias: bool = True,
-#   padding_mode: str = 'zeros')
-class Discriminator(nn.Module):
-    def __init__(self, ngpu):
-        super(Discriminator, self).__init__()
-        self.ngpu = ngpu
-        self.main = nn.Sequential(
-            # input is (nc) x 25 x 25
-            nn.Conv2d(2, ndf, 5, 2, 2, bias=False, padding_mode='circular'),
-            nn.LeakyReLU(0.2, inplace=True),
-            # state size. (ndf) x 13 x 13
-            nn.Conv2d(ndf, ndf * 2, 5, 2, 2, bias=False, padding_mode='circular'),
-            nn.BatchNorm2d(ndf * 2),
-            nn.LeakyReLU(0.2, inplace=True),
-            # state size. (ndf*2) x 7 x 7
-            nn.Conv2d(ndf * 2, ndf * 4, 5, 2, 2, bias=False, padding_mode='circular'),
-            nn.BatchNorm2d(ndf * 4),
-            nn.LeakyReLU(0.2, inplace=True),
-            # state size. (ndf*4) x 4 x 4
-            nn.Conv2d(ndf * 4, 1, 4, 1, 0, bias=False),
-            nn.Sigmoid()
-        )
-
-    def forward(self, start, stop):
-        # start and stop are separate channels now.
-        input = torch.cat([start, stop], dim=1)
-        if input.is_cuda and self.ngpu > 1:
-            output = nn.parallel.data_parallel(self.main, input, range(self.ngpu))
-        else:
-            output = self.main(input)
-
-        return output.view(-1, 1).squeeze(1)
-
-
-class FixedDiscriminator(nn.Module):
-    def __init__(self, ngpu):
-        super(FixedDiscriminator, self).__init__()
-        self.ngpu = ngpu
-
-    def forward(self, start, stop):
-        # start and stop are separate channels now.
-        input = torch.cat([start, stop], dim=1)
-        if input.is_cuda and self.ngpu > 1:
-            output = nn.parallel.data_parallel(self.main, input, range(self.ngpu))
-        else:
-            output = self.main(input)
-
-        return output.view(-1, 1).squeeze(1)
-
-
-netD = Discriminator(ngpu).to(device)
-netD.apply(weights_init)
-if opt.netD != '':
-    netD.load_state_dict(torch.load(opt.netD))
-print(netD)
 
 criterion = nn.BCELoss()
 
 fixed_noise = torch.randn(opt.batchSize, nz, 1, 1, device=device)
-real_label = 1
-fake_label = 0
 
 # setup optimizer
-optimizerD = optim.Adam(netD.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
+#optimizerD = optim.Adam(netD.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
 optimizerG = optim.Adam(netG.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
 
 if opt.dry_run:
     opt.niter = 1
-
-one_step_pred_batch = netG(torch.Tensor(stops_val), fixed_noise) > (0.5 if opt.sigmoid else 0.0)
-one_step_mean_err = 1 - np.mean(scoring.score_batch(ones_val, np.array(one_step_pred_batch, dtype=np.bool), stops_val))
-print(f'Mean error: one step {one_step_mean_err}')
-
-if opt.dry_run:
-    quit()
 
 #for epoch in range(opt.niter):
 epoch = 0
@@ -349,6 +279,7 @@ for i, data in enumerate(dataloader, 0):
     # (1) Update D network: maximize log(D(x)) + log(1 - D(G(z)))
     ###########################
     # train with real
+    """
     netD.zero_grad()
     start_real_cpu = data[0].to(device)
     stop_real_cpu = data[1].to(device)
@@ -371,28 +302,33 @@ for i, data in enumerate(dataloader, 0):
     D_G_z1 = output.mean().item()
     errD = errD_real + errD_fake
     optimizerD.step()
+    """
+    start_real_cpu = data[0].to(device)
+    stop_real_cpu = data[1].to(device)
+    batch_size = start_real_cpu.size(0)
+    noise = torch.randn(batch_size, nz, 1, 1, device=device)
 
     ############################
     # (2) Update G network: maximize log(D(G(z)))
     ###########################
     netG.zero_grad()
-    label.fill_(real_label)  # fake labels are real for generator cost
-    output = netD(fake, stop_real_cpu)
-    errG = criterion(output, label)
+    #label.fill_(real_label)  # fake labels are real for generator cost
+    output = forward_model.forward(netG(stop_real_cpu, noise))
+    errG = criterion(output, stop_real_cpu)
     errG.backward()
     D_G_z2 = output.mean().item()
     optimizerG.step()
 
-    print('[%d/%d][%d] Loss_D: %.4f Loss_G: %.4f D(x): %.4f D(G(z)): %.4f / %.4f'
+    print('[%d/%d][%d] Loss_G: %.4f D(G(z)): %.4f'
           % (epoch, opt.niter, i,
-             errD.item(), errG.item(), D_x, D_G_z1, D_G_z2))
+             errG.item(), D_G_z2))
     if i % 100 == 0:
         """
         multi_step_pred_batch = predict(netG, deltas_val, stops_val, fixed_noise)
         multi_step_mean_err = 1 - np.mean(scoring.score_batch(deltas_val, np.array(multi_step_pred_batch, dtype=np.bool), stops_val))
         """
 
-        one_step_pred_batch = netG(torch.Tensor(stops_val), fixed_noise) > (0.5 if opt.sigmoid else 0.0)
+        one_step_pred_batch = netG(torch.Tensor(stops_val), fixed_noise) > 0.5
         one_step_mean_err = 1 - np.mean(scoring.score_batch(ones_val, np.array(one_step_pred_batch, dtype=np.bool), stops_val))
         print(f'Mean error: one step {one_step_mean_err}')
 
@@ -405,7 +341,6 @@ for i, data in enumerate(dataloader, 0):
                 normalize=True)
         # do checkpointing
         torch.save(netG.state_dict(), '%s/netG_epoch_%d.pth' % (opt.outf, epoch))
-        torch.save(netD.state_dict(), '%s/netD_epoch_%d.pth' % (opt.outf, epoch))
         epoch += 1
 
     if opt.dry_run:
