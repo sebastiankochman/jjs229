@@ -75,7 +75,7 @@ while len(survivors) > 1:
         maes[i] = mae
 
     ordered = sorted(survivors, key=lambda x: maes[x])
-    print(f'\n\n==================================================\n\nExperiments ordered by MAE:\n{ordered}')
+    print(f'\n\n==================================================\n\nMAE:\n{maes}\n\nExperiments ordered by MAE:\n{ordered}')
     survivors = set(ordered[:((len(ordered)+1)//2)])
     print(f'\n\n------------------------------------------------\n\nNew survivors:\n\n{survivors}\n\n')
 

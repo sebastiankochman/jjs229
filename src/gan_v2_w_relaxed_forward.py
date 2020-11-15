@@ -277,7 +277,9 @@ def train(
     #for epoch in range(opt.niter):
     epoch = start_iter
     samples_in_epoch = 0
-    for i, data in enumerate(dataloader, 0):
+    samples_before = start_iter * epoch_samples
+    for j, data in enumerate(dataloader, 0):
+        i = samples_before + j
         ############################
         # (1) Update F (forward) network -- in the original GAN, it's a "D" network (discriminator)
         # Original comment: Update D network: maximize log(D(x)) + log(1 - D(G(z)))
@@ -328,9 +330,9 @@ def train(
 
         samples_in_epoch += batch_size
         print('[%d/%d][%d] Loss_D: %.4f Loss_G: %.4f D(x): %.4f D(G(z)): %.4f / %.4f, G MAE: %.4f'
-              % (epoch, niter, i,
+              % (epoch, start_iter+niter, i,
                  errD.item(), errG.item(), D_x, D_G_z1, D_G_z2, fake_mae))
-        if samples_in_epoch > epoch_samples:
+        if samples_in_epoch >= epoch_samples:
             """
             multi_step_pred_batch = predict(netG, deltas_val, stops_val, fixed_noise)
             multi_step_mean_err = 1 - np.mean(scoring.score_batch(deltas_val, np.array(multi_step_pred_batch, dtype=np.bool), stops_val))
