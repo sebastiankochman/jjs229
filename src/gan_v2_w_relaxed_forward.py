@@ -279,7 +279,7 @@ def train(
     samples_in_epoch = 0
     samples_before = start_iter * epoch_samples
     for j, data in enumerate(dataloader, 0):
-        i = samples_before + j
+        i = start_iter * epoch_samples // batchSize + j
         ############################
         # (1) Update F (forward) network -- in the original GAN, it's a "D" network (discriminator)
         # Original comment: Update D network: maximize log(D(x)) + log(1 - D(G(z)))
@@ -324,11 +324,11 @@ def train(
         D_G_z2 = output.mean().item()
         optimizerG.step()
 
+        samples_in_epoch += batch_size
+        s = samples_before + samples_in_epoch
         writer.add_scalar('Loss/forward', errD.item(), i)
         writer.add_scalar('Loss/gen', errG.item(), i)
         writer.add_scalar('MAE/train', fake_mae.item(), i)
-
-        samples_in_epoch += batch_size
         print('[%d/%d][%d] Loss_D: %.4f Loss_G: %.4f D(x): %.4f D(G(z)): %.4f / %.4f, G MAE: %.4f'
               % (epoch, start_iter+niter, i,
                  errD.item(), errG.item(), D_x, D_G_z1, D_G_z2, fake_mae))
@@ -341,7 +341,7 @@ def train(
             one_step_pred_batch = (netG(torch.Tensor(stops_val).to(device), fixed_noise) > pred_th).detach().cpu().numpy()
             one_step_mean_err = 1 - np.mean(scoring.score_batch(ones_val, np.array(one_step_pred_batch, dtype=np.bool), stops_val))
             print(f'Mean error: one step {one_step_mean_err}')
-            writer.add_scalar('MAE/val', one_step_mean_err, i)
+            writer.add_scalar('MAE/val', one_step_mean_err, epoch)
 
             vutils.save_image(start_real_cpu,
                     '%s/real_samples.png' % outf,
@@ -352,9 +352,9 @@ def train(
                     normalize=True)
 
             grid = vutils.make_grid(start_real_cpu)
-            writer.add_image('real', grid, i)
+            writer.add_image('real', grid, epoch)
             grid = vutils.make_grid(fake)
-            writer.add_image('fake', grid, i)
+            writer.add_image('fake', grid, epoch)
 
             # do checkpointing
             torch.save(netG.state_dict(), '%s/netG_epoch_%d.pth' % (outf, epoch))

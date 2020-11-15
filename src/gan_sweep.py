@@ -21,6 +21,18 @@ parser.add_argument('--sigmoid', action='store_true', help='use sigmoid activati
 parser.add_argument('--use_zgen', action='store_true', help='use zgen')
 """
 
+"""
+p = {
+    'batchSize': [64],
+    'nz': [10, 50],
+    'ngf': [32],
+    'lr': [0.0002],
+    'beta1': [0.5],
+    'use_zgen': [True, False],
+    'netFpath': ['models/johnson/relaxed_forward.pkl']  # skipped: 'models/johnson/forward_with_relaxation.pkl'
+}
+
+"""
 p = {
     'batchSize': [64],
     'nz': [10, 50, 100],
@@ -30,6 +42,7 @@ p = {
     'use_zgen': [True, False],
     'netFpath': ['models/johnson/relaxed_forward.pkl', '']  # skipped: 'models/johnson/forward_with_relaxation.pkl'
 }
+
 
 combinations = []
 
