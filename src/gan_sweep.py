@@ -76,6 +76,8 @@ while len(survivors) > 1:
         params = combinations[i]
         print('=====================================')
         print(f'Training with params #{i}: {params}...')
+
+        # TODO: temporarily broken (changed the train function recently)
         mae = train(
             log_dir_prefix='gan_sweep_01',
             workers=2,
