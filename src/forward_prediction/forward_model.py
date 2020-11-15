@@ -20,7 +20,14 @@ def forward(x):
     s = 20
     weight3 = torch.tensor([2*s]).view(1, 1, 1, 1).float()
     b3 = torch.tensor([-s]).float()
-  
+    
+    if torch.cuda.is_available():
+        weight1 = weight1.cuda()
+        b1 = b1.cuda()
+        weight2 = weight2.cuda()
+        weight3 = weight3.cuda()
+        b3 = b3.cuda()
+
     x = F.pad(x.float(), (1, 1, 1, 1), mode='circular')
     x = F.relu(F.conv2d(x, weight1, b1))
     x = F.relu(F.conv2d(x, weight2))
@@ -34,6 +41,9 @@ if __name__ == '__main__':
     for delta, start_board, stop_board in data_generator:
         start_board = torch.from_numpy(start_board).view(1, 1, 25, 25)
         stop_board = torch.from_numpy(stop_board)
+        if torch.cuda.is_available():
+            start_board = start_board.cuda()
+            stop_board = stop_board.cuda()
         for _ in range(delta):
             start_board = forward(start_board)
      
