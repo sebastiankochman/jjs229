@@ -131,10 +131,11 @@ class ReverseNetC(nn.Module):
 #   dilation: int = 1,
 #   padding_mode: str = 'zeros')
 class GanGenerator(nn.Module):
-    def __init__(self, ngpu=1, ngf=64, nz=100, use_zgen=False, sigmoid=True):
+    def __init__(self, ngpu=1, ngf=64, nz=8, use_zgen=False, sigmoid=True, use_noise=True):
         super(GanGenerator, self).__init__()
         self.ngpu = ngpu
         self.use_zgen = use_zgen
+        self.use_noise = use_noise
 
         ndf = ngf
         self.understand_stop = nn.Sequential(
@@ -148,7 +149,9 @@ class GanGenerator(nn.Module):
             # state size. (ndf*2) x 7 x 7
         )
 
-        if use_zgen:
+        if not use_noise:
+            zdim = 0
+        elif use_zgen:
             self.z_gen = nn.Sequential(
                 # input is Z, going into a convolution
                 nn.ConvTranspose2d(     nz, ngf * 4, 4, 1, 0, bias=False),
@@ -184,10 +187,13 @@ class GanGenerator(nn.Module):
 
         # Concatenate channels from stop understanding and z_gen:
         stop_emb = self.understand_stop(stop)
-        z_emb = self.z_gen(z) if self.use_zgen else z.repeat(1, 1, 7, 7)
 
-        # Concatenate channels from stop understanding and z_gen:
-        emb = torch.cat([stop_emb, z_emb], dim=1)
+        if self.use_noise:
+            z_emb = self.z_gen(z) if self.use_zgen else z.repeat(1, 1, 7, 7)
+            # Concatenate channels from stop understanding and z_gen:
+            emb = torch.cat([stop_emb, z_emb], dim=1)
+        else:
+            emb = stop_emb
 
         output = self.final_gen(emb)
         return output
@@ -198,6 +204,10 @@ def get_generator_net(gen_arch):
         return ReverseNetC()
     elif gen_arch == 'gan':
         return GanGenerator()
+    elif gen_arch == 'gan_no_noise':
+        return GanGenerator(use_noise=False)
+    elif gen_arch == 'gan_zgen':
+        return GanGenerator(use_zgen=True)
     else:
         raise Exception(f'Unknown generator architecture "{gen_arch}"')
 
@@ -254,7 +264,7 @@ def train(
         gen_path=None,
         fwd_path=None,
         ngpu=1,
-        nz=100,
+        nz=8,
         epoch_samples=64*100,
         learn_forward=True,
         sigmoid=True):
@@ -271,11 +281,14 @@ def train(
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=batchSize,
                                              shuffle=False, num_workers=int(workers))
 
+    # uniform
+    rand_f = torch.rand
+
     val_size = 1024
     val_set = bitmap.generate_test_set(set_size=val_size, seed=9568382)
     deltas_val, stops_val = cnnify_batch(zip(*val_set))
     ones_val = np.ones_like(deltas_val)
-    noise_val = torch.randn(val_size, nz, 1, 1, device=device)
+    noise_val = rand_f(val_size, nz, 1, 1, device=device)
 
     netG = get_generator_net(gen_arch).to(device)
     init_model(netG, gen_path)
@@ -285,7 +298,7 @@ def train(
 
     criterion = nn.BCELoss()
 
-    fixed_noise = torch.randn(batchSize, nz, 1, 1, device=device)
+    fixed_noise = rand_f(batchSize, nz, 1, 1, device=device)
     fixed_ones = np.ones((batchSize,), dtype=np.int)
 
     # setup optimizer
@@ -294,7 +307,7 @@ def train(
 
     scores = []
     for i in range(5):
-        noise = torch.randn(val_size, nz, 1, 1, device=device)
+        noise = rand_f(val_size, nz, 1, 1, device=device)
         one_step_pred_batch = (netG(torch.Tensor(stops_val).to(device), noise) > pred_th).cpu()
         model_scores = scoring.score_batch(ones_val, np.array(one_step_pred_batch, dtype=np.bool), stops_val)
         scores.append(model_scores)
@@ -332,7 +345,7 @@ def train(
 
         # train with fake -- use simulator (life_step) to generate ground truth
         # TODO: replace with fixed forward model (should be faster, in batches and on GPU)
-        noise = torch.randn(batch_size, nz, 1, 1, device=device)
+        noise = rand_f(batch_size, nz, 1, 1, device=device)
         fake = netG(stop_real_cpu, noise)
         fake_np = (fake > pred_th).detach().cpu().numpy()
         fake_next_np = life_step(fake_np)
@@ -352,6 +365,7 @@ def train(
         fake_scores = scoring.score_batch(fixed_ones, fake_np, true_stop_np, show_progress=False)
         fake_mae = 1 - fake_scores.mean()
         fake_density = fake_np.mean()
+        real_density = start_real_cpu.detach().cpu().mean()
 
         ############################
         # (2) Update G network: maximize log(D(G(z)))
@@ -368,6 +382,11 @@ def train(
         writer.add_scalar('Loss/forward', errD.item(), i)
         writer.add_scalar('Loss/gen', errG.item(), i)
         writer.add_scalar('MAE/train', fake_mae.item(), i)
+        writer.add_scalar('Fwd accuracy/real', D_x, i)
+        writer.add_scalar('Fwd accuracy/fake_unseen', D_G_z1, i)
+        writer.add_scalar('Fwd accuracy/fake_seen', D_G_z2, i)
+        writer.add_scalar('Density/real_start', real_density, i)
+        writer.add_scalar('Density/fake_start', fake_density, i)
         print('[%d/%d][%d] Loss_F: %.4f Loss_G: %.4f fwd acc(real): %.2f fwd acc(fake): %.2f / %.2f, fake dens: %.2f, MAE: %.4f'
               % (epoch, start_iter+niter, i,
                  errD.item(), errG.item(), D_x, D_G_z1, D_G_z2, fake_density, fake_mae))
@@ -413,8 +432,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--outf', required=True, help='folder to output images, model checkpoints and tensorboard logs')
 
-    parser.add_argument('--fwd_arch', choices=['relaxed'], default='relaxed')
-    parser.add_argument('--gen_arch', choices=['gan', 'johnsonC'], default='johnsonC')
+    parser.add_argument('--fwd_arch', default='relaxed')
+    parser.add_argument('--gen_arch', default='gan')
 
     parser.add_argument('--fwd_path', default=None, help="path to netF (to continue training)")
     parser.add_argument('--gen_path', default=None, help="path to netG (to continue training)")
@@ -451,7 +470,7 @@ if __name__ == "__main__":
 
     device = torch.device("cuda:0" if opt.cuda else "cpu")
 
-    writer = SummaryWriter(log_dir=outf)
+    writer = SummaryWriter(log_dir=opt.outf)
 
     train(
         gen_arch=opt.gen_arch,

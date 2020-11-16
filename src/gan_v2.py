@@ -335,7 +335,7 @@ optimizerG = optim.Adam(netG.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
 if opt.dry_run:
     opt.niter = 1
 
-one_step_pred_batch = netG(torch.Tensor(stops_val), fixed_noise) > (0.5 if opt.sigmoid else 0.0)
+one_step_pred_batch = (netG(torch.Tensor(stops_val).to(device), fixed_noise) > (0.5 if opt.sigmoid else 0.0)).cpu()
 one_step_mean_err = 1 - np.mean(scoring.score_batch(ones_val, np.array(one_step_pred_batch, dtype=np.bool), stops_val))
 print(f'Mean error: one step {one_step_mean_err}')
 
@@ -392,7 +392,7 @@ for i, data in enumerate(dataloader, 0):
         multi_step_mean_err = 1 - np.mean(scoring.score_batch(deltas_val, np.array(multi_step_pred_batch, dtype=np.bool), stops_val))
         """
 
-        one_step_pred_batch = netG(torch.Tensor(stops_val), fixed_noise) > (0.5 if opt.sigmoid else 0.0)
+        one_step_pred_batch = (netG(torch.Tensor(stops_val).to(device), fixed_noise) > (0.5 if opt.sigmoid else 0.0)).detach().cpu()
         one_step_mean_err = 1 - np.mean(scoring.score_batch(ones_val, np.array(one_step_pred_batch, dtype=np.bool), stops_val))
         print(f'Mean error: one step {one_step_mean_err}')
 
