@@ -1,3 +1,23 @@
+"""
+Results:
+
+python gcn_eval.py --gen_path models/gans/20201116_v02/netG_epoch_351.pth --cuda --baselines
+
+
+| model            |   multi-step mean |   multi-step var |   one step mean |   one step var |
+|------------------+-------------------+------------------+-----------------+----------------|
+| const_zeros      |          0.147179 |       0.00792056 |       0.147179  |     0.00792056 |
+| mirror           |          0.172068 |       0.0127246  |       0.129641  |     0.00755696 |
+| likely_starts    |          0.141522 |       0.00828948 |       0.128372  |     0.00759826 |
+| gcn              |          0.149215 |       0.0119487  |       0.0634629 |     0.00229834 |
+| gcn_multi        |          0.141785 |       0.0107674  |       0.0615779 |     0.0021672  |
+| gcn+zeros        |          0.125545 |       0.00774776 |       0.0634882 |     0.00230135 |
+| gcn+likely       |          0.124965 |       0.00788405 |       0.0633694 |     0.00231712 |
+| gcn_multi+likely |          0.123533 |       0.00780647 |       0.0614331 |     0.00218183 |
+"""
+
+
+
 from __future__ import print_function
 import torch
 import torch.nn as nn
