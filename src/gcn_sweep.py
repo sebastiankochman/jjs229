@@ -1,5 +1,5 @@
 import torch
-from gan_v2_w_relaxed_forward import train
+from gcn_train import train
 
 """
 parser.add_argument('--workers', type=int, help='number of data loading workers', default=2)

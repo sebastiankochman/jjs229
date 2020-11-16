@@ -3,7 +3,7 @@ GAN assisted by relaxed forward model
 
 Best result:
 
-python gan_v2_w_relaxed_forward.py --outf gan_sweep_02/fwd_rlx_gen_gan_b2 --fwd_path models/johnson/relaxed_forward.pkl --niter 100 --cuda --gen_arch gan_b
+python gcn_train.py --outf gan_sweep_02/fwd_rlx_gen_gan_b2 --fwd_path models/johnson/relaxed_forward.pkl --niter 100 --cuda --gen_arch gan_b
 
 [99/100][9997] Loss_F: 5.2917 Loss_G: 0.3817 fwd acc(real): 1.00 fwd acc(fake): 0.74 / 0.74, fake dens: 0.12, MAE: 0.0645
 [99/100][9998] Loss_F: 5.5621 Loss_G: 0.4102 fwd acc(real): 1.00 fwd acc(fake): 0.73 / 0.73, fake dens: 0.13, MAE: 0.0707
