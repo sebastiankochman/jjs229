@@ -1,15 +1,15 @@
 """
 GAN assisted by relaxed forward model
 
-Results:
+Best result:
 
-python gan_v2_w_relaxed_forward.py  --cuda --netF models/johnson/relaxed_forward.pkl --gen_arch gan
+python gan_v2_w_relaxed_forward.py --outf gan_sweep_02/fwd_rlx_gen_gan_b2 --fwd_path models/johnson/relaxed_forward.pkl --niter 100 --cuda --gen_arch gan_b
 
-[24/25][2497] Loss_F: 7.4095 Loss_G: 0.2725 fwd acc(real): 1.00 fwd acc(fake): 0.71 / 0.71, fake dens: 0.69, MAE: 0.0924
-[24/25][2498] Loss_F: 7.0304 Loss_G: 0.2546 fwd acc(real): 1.00 fwd acc(fake): 0.73 / 0.73, fake dens: 0.72, MAE: 0.0870
-[24/25][2499] Loss_F: 6.7200 Loss_G: 0.2800 fwd acc(real): 1.00 fwd acc(fake): 0.69 / 0.69, fake dens: 0.67, MAE: 0.0983
-100%|█████████████████████████████████████████████████████████████████████████████| 1024/1024 [00:00<00:00, 2183.44it/s]
-Mean error: one step 0.09524846076965332
+[99/100][9997] Loss_F: 5.2917 Loss_G: 0.3817 fwd acc(real): 1.00 fwd acc(fake): 0.74 / 0.74, fake dens: 0.12, MAE: 0.0645
+[99/100][9998] Loss_F: 5.5621 Loss_G: 0.4102 fwd acc(real): 1.00 fwd acc(fake): 0.73 / 0.73, fake dens: 0.13, MAE: 0.0707
+[99/100][9999] Loss_F: 5.4020 Loss_G: 0.3661 fwd acc(real): 1.00 fwd acc(fake): 0.75 / 0.75, fake dens: 0.12, MAE: 0.0627
+100%|█████████████████████████████████████████████████████████████████████████████| 1024/1024 [00:00<00:00, 2474.15it/s]
+Mean error: one step 0.07687658071517944
 
 """
 
@@ -199,6 +199,75 @@ class GanGenerator(nn.Module):
         return output
 
 
+class GanGeneratorB(nn.Module):
+    def __init__(self, ngpu=1, ngf=64, nz=8, use_zgen=False, sigmoid=True, use_noise=True):
+        super(GanGeneratorB, self).__init__()
+        self.ngpu = ngpu
+        self.use_zgen = use_zgen
+        self.use_noise = use_noise
+
+        ndf = ngf
+        self.understand_stop = nn.Sequential(
+            # input is (nc) x 25 x 25
+            nn.Conv2d(1, ndf, 5, 1, 2, bias=False, padding_mode='circular'),
+            nn.LeakyReLU(0.2, inplace=True),
+            # state size. (ndf) x 25 x 25
+            nn.Conv2d(ndf, ndf * 2, 5, 1, 2, bias=False, padding_mode='circular'),
+            nn.BatchNorm2d(ndf * 2),
+            nn.LeakyReLU(0.2, inplace=True)
+            # state size. (ndf*2) x 25 x 25
+        )
+
+        if not use_noise:
+            zdim = 0
+        elif use_zgen:
+            self.z_gen = nn.Sequential(
+                # input is Z, going into a convolution
+                nn.ConvTranspose2d(     nz, ngf * 4, 4, 1, 0, bias=False),
+                nn.BatchNorm2d(ngf * 4),
+                nn.ReLU(True),
+                # state size. (ngf*4) x 4 x 4
+                nn.ConvTranspose2d(ngf * 4, ngf * 2, 5, 2, 2, bias=False), # padding_mode='circular' not available in ConvTranspose2d
+                nn.BatchNorm2d(ngf * 2),
+                nn.ReLU(True)
+                # state size. (ngf*2) x 7 x 7
+            )
+            zdim = ngf * 2
+        else:
+            zdim = nz
+
+        self.final_gen = nn.Sequential(
+            # state size. (ndf*2 + ngf*2) x 25 x 25
+            nn.ConvTranspose2d(ndf*2 + zdim,     ngf, 5, 1, 2, bias=False),
+            nn.BatchNorm2d(ngf),
+            nn.ReLU(True),
+            # state size. (ngf) x 25 x 25
+            nn.ConvTranspose2d(    ngf,      1, 5, 1, 2, bias=False),
+            nn.Sigmoid() if sigmoid else nn.Tanh()
+            # state size. (nc) x 25 x 25
+        )
+
+
+    def forward(self, stop, z):
+        # TODO: fix CUDA:
+        #if input.is_cuda and self.ngpu > 1:
+        #    output = nn.parallel.data_parallel(self.main, input, range(self.ngpu))
+        #else:
+
+        # Concatenate channels from stop understanding and z_gen:
+        stop_emb = self.understand_stop(stop)
+
+        if self.use_noise:
+            z_emb = self.z_gen(z) if self.use_zgen else z.repeat(1, 1, 25, 25)
+            # Concatenate channels from stop understanding and z_gen:
+            emb = torch.cat([stop_emb, z_emb], dim=1)
+        else:
+            emb = stop_emb
+
+        output = self.final_gen(emb)
+        return output
+
+
 def get_generator_net(gen_arch):
     if gen_arch == 'johnsonC':
         return ReverseNetC()
@@ -208,6 +277,8 @@ def get_generator_net(gen_arch):
         return GanGenerator(use_noise=False)
     elif gen_arch == 'gan_zgen':
         return GanGenerator(use_zgen=True)
+    elif gen_arch == 'gan_b':
+        return GanGeneratorB()
     else:
         raise Exception(f'Unknown generator architecture "{gen_arch}"')
 
