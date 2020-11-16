@@ -510,6 +510,7 @@ if __name__ == "__main__":
     parser.add_argument('--gen_path', default=None, help="path to netG (to continue training)")
 
     parser.add_argument('--workers', type=int, help='number of data loading workers', default=2)
+    parser.add_argument('--start_iter', type=int, default=0)
 
     parser.add_argument('--batchSize', type=int, default=64, help='input batch size')
     parser.add_argument('--niter', type=int, default=25, help='number of epochs to train for')
@@ -550,7 +551,7 @@ if __name__ == "__main__":
         fwd_path=opt.fwd_path,
         writer=writer,
         outf=opt.outf,
-        start_iter=0,
+        start_iter=opt.start_iter,
         workers=opt.workers,
         batchSize=opt.batchSize,
         niter=opt.niter,
