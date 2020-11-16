@@ -305,9 +305,18 @@ class RelaxedForwardNet(nn.Module):
         x = torch.sigmoid(self.conv4(x))
         return x
 
+class ExactForward(nn.Module):
+    def __init__(self):
+        super(ExactForward, self).__init__()
+
+    def forward(self, x):
+        return forward_model.forward(x)
+
 def get_forward_net(fwd_arch):
     if fwd_arch == 'relaxed':
         return RelaxedForwardNet()
+    elif fwd_arch == 'exact':
+        return ExactForward()
     else:
         raise Exception(f'Unknown forward architecture "{fwd_arch}"')
 
@@ -373,7 +382,8 @@ def train(
     fixed_ones = np.ones((batchSize,), dtype=np.int)
 
     # setup optimizer
-    optimizerD = optim.Adam(netF.parameters(), lr=lr, betas=(beta1, 0.999))
+    if learn_forward:
+        optimizerD = optim.Adam(netF.parameters(), lr=lr, betas=(beta1, 0.999))
     optimizerG = optim.Adam(netG.parameters(), lr=lr, betas=(beta1, 0.999))
 
     scores = []
