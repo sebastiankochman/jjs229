@@ -63,12 +63,13 @@ As the idea for this project came from a Kaggle competition \cite{b1}, we adopt 
 In order to aid the discussion, we adopt the following notation:
 
 \begin{itemize}
-    \item $B$: A $25 \times 25$ matrix with entries in $0$ (dead or off) or $1$ (live or on) representing a board state (or just ``board'') in the Game of Life. We also use $B^{s}$ and $B^{e}$ to denote the starting board and its one-step evolution, which we refer to as the \emph{evolved} or stop board.
-    \item $B_{i,j}$: The value of the cell in the $i$th row and $j$th column of $B$. We consider the board $B$ is wrapped around the edges, so each cell $B_{i, j}$ has exactly 8 neighbors (or adjacent cells). 
-    \item When applicable we'll use hat (e.g. $\hat B$) to denote predicted outputs.
+    \item $S, E \in \{0, 1\}^{25\times 25}$: matrices with entries in $0$ (dead or off) or $1$ (live or on) representing states (or ``boards'') in the Game of Life: $S$ denotes the starting board and $E$ denotes a corresponding one-step evolution, which we refer to as the \emph{evolved} or stop board.
+    \item $S^{(i)}, E^{(i)}$ - superscript $(i)$ denotes an $i$th example of evolution in some data set.
+    \item $s_{j,k}$ or $e_{j,k}$: the value of the cell in the $j$th row and $k$th column of $S$ or $E$ correspondingly. We consider the boards to be wrapped around the edges, so each cell has exactly 8 neighbors (or adjacent cells).
+    \item When applicable we'll use hat (e.g. $\hat S$) to denote predicted outputs.
 \end{itemize}
 
-Using this notation, our goal is to train a model on a set of boards $\{B^{(i)}\}$ to predict one of the (potentially) many $B^{s}$'s that evolve to a given $B^{e}$.
+Using this notation, our goal is to train a model that, given an evolved board $E^{(i)}$, predicts one of the (potentially) many $S^{(i)}$'s that evolve to a given $E^{(i)}$.
 
 \section{Related Work}
 In \cite{b5}, the authors worked on training a neural network to predict the forward evolution. This is a much simpler solution with a known solution---a three-layered CNN---alluded to earlier. The authors however showed that training such a three-layered CNN from scratch fails to learn the forward evolution, but instead one has to increase the size of the model fairly substantially in order to learn it with perfect accuracy.
@@ -83,8 +84,8 @@ We created a data generator (following the procedure prescribed by the aforement
 
 \begin{enumerate}
 \item An initial board is chosen by filling the board with a random density of live cells between 1\% (mostly 0's) and 99\% (mostly 1's).
-\item This initial board is evolved 5 steps to ``warm up'' the board. This is partly to evolve the board into a state that's more ``life-like''. This post-warm-up board will be a starting board $B^{s}$.
-\item We then evolve $B^{s}$ one step to get $B^e$. If the stopping board turns out to be empty, we discard $B^s$ and $B^e$ and start over.
+\item This initial board is evolved 5 steps to ``warm up'' the board. This is partly to evolve the board into a state that's more ``life-like''. This post-warm-up board will be a starting board $S$.
+\item We then evolve $S$ one step to get $E$. If the stopping board turns out to be empty, we discard $S$ and $E$ and start over.
 \end{enumerate}
 
 Since there are $2^{25 \times 25}$ different possible $B$'s, the data we can use is effectively infinite and is not a constraint on the quality of our model\footnote{With that said, our compute and memory resources are limited so we restricted our training dataset to 128000 start-stop board pairs}. 
@@ -92,20 +93,20 @@ Since there are $2^{25 \times 25}$ different possible $B$'s, the data we can use
 One convenient feature of this dataset is that each board is naturally a $25 \times 25$ matrix, which can be directly fed into a CNN as a single-channel image of width and height 25.
 
 \section{Methods}
-As mentioned in the introduction, one of the inherent challenges in reversing the Game of Life is that this reversal is not one-to-one but one-to-many. For instance, take any board $B^s$ with a $3 \times 3$ region with all dead cells, you can replace the center cell in this region with a live cell, and get a $B^{s'}$ that evolves to the same $B^e$. The problem, in fact, is much more severe since typical evolved boards have mostly dead cells, and it's easy to see that there are many $3 \times 3$ boards whose cells all die after one evolution. This means that simply using the evolved boards $B^e$'s as the input and their corresponding starting boards $B^s$' as the output to train a supervised learning model will not work very well.
+As mentioned in the introduction, one of the inherent challenges in reversing the Game of Life is that this reversal is not one-to-one but one-to-many. For instance, take any board $S$ with a $3 \times 3$ region with all dead cells, you can replace the center cell in this region with a live cell, and get an $S'$ that evolves to the same $E$. The problem, in fact, is much more severe since typical evolved boards have mostly dead cells, and it's easy to see that there are many $3 \times 3$ boards whose cells all die after one evolution. This means that simply using the evolved boards $E$'s as the input and their corresponding starting boards $S$' as the output to train a supervised learning model will not work very well.
 
-On the other hand, we note that the function $B^e$ to $B^s$ to $B^e$---reverse the evolution then evolve forward---is always one-to-one. This line of thought led to our first breakthrough, which we call the \emph{Reverse-Forward Network}.
+On the other hand, we note that the function $E$ to $S$ to $E$---reverse the evolution then evolve forward---is always one-to-one. This line of thought led to our first breakthrough, which we call the \emph{Reverse-Forward Network}.
 
 \subsection{Reverse-Forward Network}
 \label{revfwdnet}
-The Reverse-Forward Network is a two-stage network consisting of a forward CNN $F$ that mimics the evolution in the Game of Life, and a reverse CNN $R$ that tries to reverse one evolution in the Game of Life. Now, given an evolved board $B^e$, we want $F(R(B^e))$ to equal to $B^e$---that is, first reversing $B^e$ to some $\hat B = R(B^e)$ then evolving $\hat B$ by $F$ should recover $B^e$. So the problem becomes training $F \circ R$ to predict $B^e$ from $B^e$. Now, in order to ensure $F \circ R$ does not reduce to the identity function, we fix the weights of $F$ during training, such that only the weights of $R$ are updated. This in theory should help $R$ to learn to reverse the Game of Life.
+The Reverse-Forward Network is a two-stage network consisting of a forward CNN $F$ that mimics the evolution in the Game of Life, and a reverse CNN $R$ that tries to reverse one evolution in the Game of Life. Now, given an evolved board $E$, we want $F(R(E))$ to equal to $E$---that is, first reversing $E$ to some $\hat B = R(E)$ then evolving $\hat B$ by $F$ should recover $E$. So the problem becomes training $F \circ R$ to predict $E$ from $E$. Now, in order to ensure $F \circ R$ does not reduce to the identity function, we fix the weights of $F$ during training, such that only the weights of $R$ are updated. This in theory should help $R$ to learn to reverse the Game of Life.
 
 While we know of a three-layered CNN that perfectly replicates the evolution in Game of Life \cite{b5}, it cannot be used as the $F$ in the above algorithm since it assumes the inputs are binary\footnote{We did try using this CNN as the F and the results were poor. Also we noted that its behavior on non-binary inputs is unpredictable}, whereas the output of any $R$ is necessarily non-binary (and we cannot apply a step function to coerce the output of R into binary values because the gradient will all go to 0 and not back-propagate through to the weights of $R$). In order to overcome this, we trained a \emph{Relaxed Forward Network} whose inputs are $25 \times 25$ matrices with floating point values between 0 and 1 that represent \emph{relaxed} or \emph{softened} versions of Game of Life boards, in the sense that cells with values in $[0, 0.5)$ are considered dead and cells with values in $[0.5, 1]$ are considered alive. We then train $F$ on these relaxed input boards to predict the evolved boards of their non-relaxed counterparts. Note this $F$ is taught to treat cells with value less than 0.5 as dead and cells with value greater or equal to 0.5 as alive, which is what we want.
 
 To summarize, the Reverse-Forward Network is trained as follows:
 \begin{enumerate}
     \item \textbf{Relaxed Forward Network}: We train $F$ to predict evolved boards on relaxed starting boards.
-    \item \textbf{Reverse Forward Network}: We fixed the weights of $F$ and train $F \circ R$ on non-relaxed boards $B^e$'s to recover $B^e$'s. (So we want $F \circ R$ to be the identity function.) The network $R$ can then learn to reverse the Game of Life.
+    \item \textbf{Reverse Forward Network}: We fixed the weights of $F$ and train $F \circ R$ on non-relaxed boards $E$'s to recover $E$'s. (So we want $F \circ R$ to be the identity function.) The network $R$ can then learn to reverse the Game of Life.
 \end{enumerate}
 
 Only network $R$ is used during inference.
@@ -125,8 +126,8 @@ In this method, training of both networks $F$ and $R$ (which are counterparts of
 
 The key differences between GCN and GAN are:
 \begin{itemize}
-    \item The network $F$ - contrary to GAN's discriminator - does not only output a single binary value predicting whether the input is real or fake, but the whole board $B^e$.
-    \item Calculating loss for network $F$ requires access to a simulator function $\pi : \{1,0\}^{n\times n} \rightarrow \{1,0\}^{n\times n}$ - in our case, taking $B^s$ as input and returning ground truth $B^e$ as output. $\pi$ does not have to be differentiable - it can be even a hard-coded function implemented in any programming language.
+    \item The network $F$ - contrary to GAN's discriminator - does not only output a single binary value predicting whether the input is real or fake, but the whole board $E$.
+    \item Calculating loss for network $F$ requires access to a simulator function $\pi : \{1,0\}^{n\times n} \rightarrow \{1,0\}^{n\times n}$ - in our case, taking $S$ as input and returning ground truth $E$ as output. $\pi$ does not have to be differentiable - it can be even a hard-coded function implemented in any programming language.
     \item Networks $F$ and $R$, even though having different objectives, do not compete with each other. The equilibrium between networks' accuracy, as seeked in GANs, is not the goal here.
 \end{itemize}
 
@@ -136,28 +137,28 @@ The key differences between GCN and GAN are:
     for number of training iterations do
     \begin{enumerate}
     \item Sample minibatch of $m$ noise samples $\{z^{(1)}
-    , . . . , z^{(m)}\}$ from noise prior $p(z)$, and $m$ examples $\{(s^{(1)}, e
-    ^{(1)}), . . . , (s^{(m)}, e^{(m)})\}$ from data source.
+    , . . . , z^{(m)}\}$ from noise prior $p(z)$, and $m$ examples $\{(S^{(1)}, E
+    ^{(1)}), . . . , (S^{(m)}, E^{(m)})\}$ from data source.
     \item For each example $i\in\{1,...,m\}$:
     \begin{enumerate}
-        \item Predict reverse $\hat s^{(i)} = R(e^{(i)}, z^{(i)})$
-        \item Simulate step forward $\hat e_\pi^{(i)} = \pi(\hat s^{(i)})$
+        \item Predict reverse $\hat S^{(i)} = R(E^{(i)}, z^{(i)})$
+        \item Simulate step forward $\hat E_\pi^{(i)} = \pi(\hat S^{(i)})$
         \item Update parameters of $R$ by descending its gradient:
         
-        $$\nabla_R \text{BCE}((F \circ R) (e^{(i)}, z^{(i)}), e^{(i)}) $$
+        $$\nabla_R \text{BCE}((F \circ R) (E^{(i)}, z^{(i)}), E^{(i)}) $$
         
         where $\text{BCE}$ stands for binary cross-entropy loss.
         
         \item Update parameters of $F$ by descending its gradient:
         
-        $$\nabla_F \left(\text{BCE}(F(s^{(i)}), e^{(i)}) + \text{BCE}(F(\hat s^{(i)}), \hat e_{\pi}^{(i)})\right)$$
+        $$\nabla_F \left(\text{BCE}(F(S^{(i)}), E^{(i)}) + \text{BCE}(F(\hat S^{(i)}), \hat E_{\pi}^{(i)})\right)$$
     \end{enumerate}
     \end{enumerate}
 \end{algorithm} 
 
 Note that if we run algorithm \ref{gcn_alg} twice, with minor modifications, it reduces to the approach described in section \ref{revfwdnet}:
 \begin{itemize}
-    \item In the first run, disable update 2.c) and change update 2.d) to just $\nabla_F \text{BCE}(F(s^{(i)}, e^{(i)}))$ - effectively just training network $F$.
+    \item In the first run, disable update 2.c) and change update 2.d) to just $\nabla_F \text{BCE}(F(S^{(i)}, E^{(i)}))$ - effectively just training network $F$.
     \item In the second run, disable update 2.d) - effectively just training network $R$.
     \item Use empty noise $z$ or ignore it in $R$.
 \end{itemize}
@@ -180,14 +181,15 @@ Table \ref{results_table} summarizes experimental results on a validation set co
 
 \subsection{Evaluation}
 \label{evaluation}
-For model evaluation, we use the evaluation criterion defined in the Kaggle competition, which is the mean absolute error (MAE) of the terminal state $\hat{B^{(stop)}}$ reached from the model's prediction $\hat{B^{-\delta}}$ and the actual terminal state $B^{(stop)}$. Mathematically, this is given by
-$$\mathrm{err}(B^{(stop)}, \hat B^{(stop)}) = \frac{ \sum_{j=1}^{n}\sum_{k=1}^{n}|B_{j,k}^{(stop)} - \hat B_{j,k}^{(stop)}|}{n^2}$$
-$$\mathrm{MAE}(x, \hat x) = \frac{\sum_{i=1}^{m} \mathrm{err}(x^{(i)}, \hat x^{(i)})}{m},$$
+The evaluation criterion we use is the mean absolute error (MAE) when comparing the terminal state $\hat{E}$, reached from the model's prediction $\hat{S}$, to the ground-truth terminal state $E$. Mathematically, this is given by
+$$\mathrm{MAE}_{\text{single}}(\hat E, E) = \frac{ \sum_{j=1}^{n}\sum_{k=1}^{n}|\hat E_{j,k} - E_{j,k}|}{n^2}$$
+
+$$\mathrm{MAE}_{\text{dataset}} = \frac{\sum_{i=1}^{m} \mathrm{MAE}_{\text{single}}(\pi(\hat S^{(i)}), E^{(i)})}{m},$$
 
 % old formula:
 %$$\frac{\sum_{i=1}^{m}\sum_{j=1}^{n}\sum_{k=1}^{n}|x_{j,k}^{(i)} - \hat x_{j,k}^{(i)}|}{m \times n^2},$$
 
-where $x^{(i)}$ is the $i$th ground truth terminal state ($B^{(\text{stop})}$), and $\hat x^{(i)}$ is the terminal state ($\hat B^{(\text{stop})}$) evolved from the $i$th predicted starting board ($\hat B^{(-\delta^{(i)})}$), $m$ is number of examples in a data set and $n$ is the width/height of the board ($25$ by default).
+where $E^{(i)}$ is the $i$th ground truth terminal state and $\hat E^{(i)}$ is the terminal state evolved from the $i$th predicted starting board $\hat S^{(i)}$ using a simulator $\pi$. $m$ is number of examples in a data set and $n$ is the width/height of the board ($25$ by default).
 
 
 \begin{table*}[t]
