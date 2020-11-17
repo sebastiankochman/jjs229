@@ -1,0 +1,260 @@
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+% The preceding line is only needed to identify funding in the first footnote. If that is unneeded, please comment it out.
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{comment}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{listings}
+\def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
+    T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
+    
+\newcommand\todo[1]{\textcolor{red}{#1}}
+
+\renewcommand{\thesection}{\arabic{section}}
+\def\thesectiondis{\thesection.} \def\thesubsectiondis{\thesectiondis\arabic{subsection}.} \def\thesubsubsectiondis{\thesubsectiondis\arabic{subsubsection}.} \def\theparagraphdis{\thesubsubsectiondis\arabic{paragraph}.}
+
+\usepackage{hyperref}
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    filecolor=magenta,      
+    urlcolor=cyan,
+}
+
+\begin{document}
+
+\title{Reversing Conway's Game of Life}
+
+%\icmlcorrespondingauthor{}{johnjia@stanford.edu}
+%\icmlcorrespondingauthor{Sebastian Kochman}{sebastko@stanford.edu}
+%\icmlcorrespondingauthor{Jianyu Lu}{jylux@stanford.edu}
+\author{\IEEEauthorblockN{Johnson Jia}
+\IEEEauthorblockA{johnjia@stanford.edu}
+\and
+\IEEEauthorblockN{Sebastian Kochman}
+\IEEEauthorblockA{sebastko@stanford.edu}
+\and
+\IEEEauthorblockN{Jianyu Lu}
+\IEEEauthorblockA{jylux@stanford.edu}
+}
+
+\maketitle
+
+\begin{abstract}
+The Game of Life \cite{b2} is a cellular automaton created by the mathematician John Conway. It consists of a board of cells that are either live or dead, such that each cell evolves according to a set of deterministic rules  based on the state of the its neighboring cells. We apply machine learning to reverse the Game of Life, that is, to generate one of the many preceding states that evolve to a given state.
+\end{abstract}
+
+\section{Introduction}
+The Game of Life is a \emph{life-like} cellular automaton \cite{lifelike} where a board of live or dead cells evolve according to the following two simple rules:
+\begin{enumerate}
+    \item A live cell that is surrounded by two or three lives cells survives in the next round, otherwise it dies.
+    \item A dead cell that is surrounded by three living cells comes alive the next round, otherwise it stays dead.
+\end{enumerate}
+Whereas this forward evolution in the Game of Life can be modeled perfectly using a convolutional neural network---in fact, one such CNN is prescribed in the appendix of  \cite{b5}---learning to reverse the Game of Life is much more challenging. For one, many different boards can evolve to the same board, so a supervised learning approach with the evolved boards as the input and their predecessors---that is, the boards from which they evolved---as the output is unlikely to work. In this paper, we describe an approach which partially overcomes this one-to-many problem when reversing the Game of Life.
+
+As the idea for this project came from a Kaggle competition \cite{b1}, we adopt many of the problem settings outlined in the competition (with some minor differences)\footnote{In particular, the competition requires reversing multiple steps whereas we solely focus on reversing just one step in this paper.}. We will focus on boards of size $25 \times 25$, with wrap-around in the sense that cells on the left-edge (top-edge) are considered adjacent to the cells on the right-edge (bottom-edge) in the same row (column). We also focus on reversing just one step of the Game of Life, as its difficulty is representative of the general problem of reversing $\delta$ steps, and a model that does well in this special case should in theory be easy to generalize to the general case\footnote{Although in actuality we noticed that minor errors in the one-step reversal get amplified significantly during repeated application of the model to reverse multiple steps. We leave this generalization work for the future.}.
+
+\subsection{Notation}
+In order to aid the discussion, we adopt the following notation:
+
+\begin{itemize}
+    \item $B$: A $25 \times 25$ matrix with entries in $0$ (dead or off) or $1$ (live or on) representing a board state (or just ``board'') in the Game of Life. Also we use $B^{(\mathrm{stop})}$ to denote the \emph{evolved} or final board state after one evolution.
+    \item $B_{i,j}$: The value of the cell in the $i$th row and $j$th column of $B$. We consider the board $B$ is wrapped around the edges, so each cell $B_{i, j}$ has exactly 8 neighbors (or adjacent cells). 
+    \item When applicable we'll use hat (e.g. $\hat B$) to denote predicted outputs.
+\end{itemize}
+
+Using this notation, our goal is to train a model on a set of boards $\{B^{(i)}\}$ to predict one of the (potentially) many $B$'s that evolve to a given $B^{(\mathrm{stop})}$.
+
+\section{Related Work}
+
+Game of Life's forward function has been studied in the context of teaching convolution neural networks (cite).
+
+In principle, the problem we study is finding an inverse of a complex non-linear function.  Independent component analysis (ICA)  is an unsupervised method of finding a reverse of linear transformation that produced observed data. There has been recently a lot of progress in studying non-linear ICA (cite https://arxiv.org/abs/1805.08651 , https://arxiv.org/abs/1710.05050 ), which often involve generative adversarial nets (GANs cite https://arxiv.org/abs/1406.2661). In our work, we study applicability of GANs to reversing Game of Life.
+
+\section{Dataset}
+
+We created a data generator (following the procedure prescribed by the aforementioned Kaggle compeition) to generate the datasets used for training and evaluation.
+
+\begin{enumerate}
+\item An initial board is chosen by filling the board with a random density of live cells between 1\% full (mostly 0's) and 99\% full (mostly 1's).
+\item This initial board is evolved 5 steps to ``warm up'' the board. This is partly to 
+\item The starting board's state is recorded after the 5 ``warm-up steps''. This becomes the {\it start} matrix $B^{(-\delta)}$.
+\item The starting board is then evolved $\delta$ steps. $\delta$ is chosen to be uniformly random between $1$ and $5$ (inclusive). If the stopping board turns out to be empty, the game is discarded.
+\item The stopping board's state is then recorded as the {\it stop} matrix $B^{(\text{stop})}$.
+\end{enumerate}
+
+$B^{(\text{stop})}$ and $\delta$ are inputs to the prediction function (where often only $B^{(\text{stop})}$ is the input to an ML model, and $\delta$ controls how many times the model prediction is called). $B^{(-\delta)}$ is one of (often many) correct outputs and can be used during training.
+
+In addition to using the data sets provided by Kaggle, we have also built a data generator following rules above. Using such generator, we can train on vastly more data than provided by the competition organizers and even generate an infinite stream of data. We can also generate many validation sets, so  overfitting can be easily detected and avoided.
+
+%The generator accepts arguments like: size of the board, $\delta_{\min}$, $\delta_{\max}$, range of density etc., so we can also easily generate scenarios outside the scope of the Kaggle competition---this can be particularly useful while analyzing our methods in simpler settings. Data generator is initialized with a random seed, to ensure reproducible results.
+
+\section{Methods}
+
+Firstly, we would like to note that solving the problem for a single step backwards should provide a solution for $N$ steps backwards, by repeating the process. \todo{Consider removing.}
+
+
+\subsection{Reverse-Forward Net}
+
+Our method is based on training two deep neural networks:
+\begin{itemize}
+    \item \textbf{Forward network} - given input $B^{(-\delta)}$ and $\delta$, generates the stopping board $\hat B^{(stop)}$ which is supposed to be close to the real $B^{(stop)}$ in the Game of Life.
+    \item \textbf{Reverse network} - given input $B^{(stop)}$ and $\delta$, generates the starting board $\hat B^{(-\delta)}$.
+\end{itemize}
+
+Note that in most of our experiments, we focused on models handling only $\delta = 1$, and enabled inference for $\delta = {2,...,5}$ via inference code around the ML model.
+
+\subsection{Generative Collaborative Networks}
+
+Inspired by generative adversarial networks \todo{(cite)}, we propose a novel algorithm adapted to our problem settings, called Generative Collaborative Networks.
+
+% I don't know how to use bibtex:
+%~\cite{goodfellow2014generative}
+
+\todo{TODO: Cite GANs, describe differences and describe the algorithm on high level. Below is the algorithm copied from the GAN paper - modify it to our settings}
+
+Algorithm 1 Minibatch stochastic gradient descent training of generative adversarial nets. The number of
+steps to apply to the discriminator, k, is a hyperparameter. We used k = 1, the least expensive option, in our
+experiments.
+
+for number of training iterations do
+
+\begin{itemize}
+\item Sample minibatch of $m$ noise samples $\{z^{(1)}
+, . . . , z^{(m)}\}$ from noise prior $p_g(z)$.
+\item Sample minibatch of $m$ examples ${x
+^{(1)}
+, . . . , x^{(m)}}$ from data generating distribution
+pdata(x).
+\item Update the discriminator by ascending its stochastic gradient:
+$$\nabla_{\theta_d} \frac{1}{m} \sum_{i=1}^{m} \left[ \log D(x^{(i)}) + \log \left(1 - D(G(z^{(i)}))\right) \right] $$
+\item Sample minibatch of $m$ noise samples $\{z
+^{(1)}
+, . . . , z^{(m)}\}$ from noise prior $p_g(z)$.
+\item Update the generator by descending its stochastic gradient:
+
+$$\nabla_{\theta_g} \frac{1}{m} \sum_{i=1}^{m} \log \left(1 - D(G(z^{(i)})) \right) $$
+\end{itemize}
+
+The gradient-based updates can use any standard gradient-based learning rule. We used momentum in our experiments.
+
+
+
+\section{Results and Discussion}
+
+\subsection{Evaluation}
+\label{evaluation}
+For model evaluation, we will use the evaluation criterion defined in the Kaggle competition, which is the mean absolute error (MAE) of the terminal state $\hat{B^{(stop)}}$ reached from the model's prediction $\hat{B^{-\delta}}$ and the actual terminal state $B^{(stop)}$. Mathematically, this is given by
+$$\mathrm{err}(B^{(stop)}, \hat B^{(stop)}) = \frac{ \sum_{j=1}^{n}\sum_{k=1}^{n}|B_{j,k}^{(stop)} - \hat B_{j,k}^{(stop)}|}{n^2}$$
+$$\mathrm{MAE}(x, \hat x) = \frac{\sum_{i=1}^{m} \mathrm{err}(x^{(i)}, \hat x^{(i)})}{m},$$
+
+% old formula:
+%$$\frac{\sum_{i=1}^{m}\sum_{j=1}^{n}\sum_{k=1}^{n}|x_{j,k}^{(i)} - \hat x_{j,k}^{(i)}|}{m \times n^2},$$
+
+where $x^{(i)}$ is the $i$th ground truth terminal state ($B^{(\text{stop})}$), and $\hat x^{(i)}$ is the terminal state ($\hat B^{(\text{stop})}$) evolved from the $i$th predicted starting board ($\hat B^{(-\delta^{(i)})}$), $m$ is number of examples in a data set and $n$ is the width/height of the board ($25$ by default).
+
+
+\iffalse
+% Latest results
+| model            |   multi-step mean |   multi-step var |   one step mean |   one step var |
+|------------------+-------------------+------------------+-----------------+----------------|
+| const_zeros      |          0.147179 |       0.00792056 |       0.147179  |     0.00792056 |
+| mirror           |          0.172068 |       0.0127246  |       0.129641  |     0.00755696 |
+| likely_starts    |          0.141522 |       0.00828948 |       0.128372  |     0.00759826 |
+| gcn              |          0.149215 |       0.0119487  |       0.0634629 |     0.00229834 |
+| gcn_multi        |          0.141785 |       0.0107674  |       0.0615779 |     0.0021672  |
+| gcn+zeros        |          0.125545 |       0.00774776 |       0.0634882 |     0.00230135 |
+| gcn+likely       |          0.124965 |       0.00788405 |       0.0633694 |     0.00231712 |
+| gcn_multi+likely |          0.123533 |       0.00780647 |       0.0614331 |     0.00218183 |
+\fi
+
+\begin{table*}[t]
+    \centering
+    \begin{tabular}{|c|c|c|c|c|}
+    \hline
+     & \multicolumn{2}{|c|}{Multi-step error ($\delta \in \{1,\dots,5\}$)} & \multicolumn{2}{|c|}{Single-step error ($\delta = 1$)} \\
+    \hline
+    Model & mean & variance & mean & variance \\
+    \hline
+    Constant zeros & 14.72\% & 0.79\% & 14.72\% & 0.79\% \\
+    Likely starts & \textbf{14.15\%} & 0.83\% & 12.84\% & 0.76\% \\
+    GCN & 14.92\% & 1.19\% & \textbf{6.35\%} & 0.23\% \\
+    \hline
+    Ensemble A & 14.17\% & 1.08\% & 6.16\% & 0.22\% \\
+    Ensemble B & \textbf{12.35\%} & 0.78\% & \textbf{6.14\%} & 0.22\% \\
+    \hline
+    \end{tabular}
+    \caption{Evaluation results on a validation set with 10k examples.}
+    \label{tab:eval_results}
+\end{table*}
+
+\subsection{Trivial Baselines}
+We first established a couple of trivial baselines to get a sense for minimal metrics that more sophisticated approaches should beat:
+\begin{itemize}
+    \item {\it Constant zeros} - returning always a board of zeros.
+    \item {\it Likely starts} - this simple heuristic tries forward simulation (for $\delta$ steps) from $3$ ``likely'' starting boards (constant zeros, a board equal to {\it stop}, and a single step forward from {\it stop}), then picks the one which achieves the highest score (per out evaluation metric) in the current example.
+\end{itemize}
+
+\subsection{Simple Convolutional Neural Network}
+
+We have tried a few simple CNN architectures. The best results so far have been achieved with the following sequence of layers:
+
+\begin{itemize}
+    \item {\tt Conv2D}: filter 5x5, output channels 16, activation ReLU
+    \item {\tt Conv2D}: filter 5x5, output channels 8, activation ReLU
+    \item {\tt Conv2D}: filter 3x3, output channels 4, activation ReLU
+    \item {\tt Conv2D}: filter 3x3, output channels 1, activation sigmoid
+\end{itemize}
+
+All of the layers use padding with zeros, so the output tensor is of the same size as input---$25 \times 25$, with 1 channel. We used the Adam optimizer with default hyper-parameters in TensorFlow and the binary cross-entropy loss. The model reported in Table \ref{tab:eval_results} was obtained after training on 71,680 examples (randomly generated, never repeated) with batch size 2048.
+
+It's worth noting that the out-of-box padding techniques offered by TensorFlow---{\it valid} (no padding) and {\it same} (padding with zeros)---do not fit our problem well as the board does not have borders per se but instead \emph{wraps around}. PyTorch on the other hand has {\it circular} padding should in theory work the best; however, after translating exactly the same CNN architecture to PyTorch, we did not observe any metric improvements, in fact, the results are slightly worse. Investigating this further will be one of tasks we hope to do.
+
+
+\section{Conclusion and Future Work}
+
+\section{Contributions}
+The authors contributed equally to the project: %We outline their individual contributions below.
+\begin{itemize}
+    \item \textbf{Johnson Jia} implemented the simple probabilistic model and contributed to writing and editing the project proposal as well as this milestone report.
+
+    \item \textbf{Sebastian Kochman} implemented skeleton code for data generation and evaluation, evaluated baseline approaches, tile graph-based heuristics and the CNN V1 model, as well as contributed to writing the milestone report.
+
+    \item \textbf{Jianyu Lu} implemented a simple CNN which achieves similar results to CNN V1, completed and submitted the team's first Kaggle notebook.
+
+\end{itemize}
+
+\begin{thebibliography}{00}         
+\bibitem{b1} ``Conway's Reverse Game of Life 2020,'' \url{https://www.kaggle.com/c/conways-reverse-game-of-life-2020/overview}
+\bibitem{b2} ``Conway's Game of Life,'' Wikipedia, \url{https://en.wikipedia.org/wiki/Conway\%27s_Game_of_Life}
+\bibitem{lifelike} ``Life-like Cellular Automaton,'' Wikipedia, \url{https://en.wikipedia.org/wiki/Life-like_cellular_automaton}
+\bibitem{b3} ``Going Deeper with Convolutions'' \url{https://static.googleusercontent.com/media/research.google.com/en//pubs/archive/43022.pdf}
+\bibitem{b4} ``Deep Residual Learning for Image Recognition''
+\url{https://arxiv.org/abs/1512.03385}
+\bibitem{b5} ``It’s Hard For Neural Networks to Learn the Game of
+Life''
+\url{https://arxiv.org/pdf/2009.01398.pdf}
+
+\bibitem{gan} ``Advances in Neural Information Processing Systems''
+\url{https://proceedings.neurips.cc/paper/2014/file/5ca3e9b122f61f8f06494c97b1afccf3-Paper.pdf}
+\author[]{Goodfellow, Ian and Pouget-Abadie, Jean and Mirza, Mehdi and Xu, Bing and Warde-Farley, David and Ozair, Sherjil and Courville, Aaron and Bengio, Yoshua}
+
+% bibtex:
+\iffalse
+@misc{goodfellow2014generative,
+      title={Generative Adversarial Networks}, 
+      author={Ian J. Goodfellow and Jean Pouget-Abadie and Mehdi Mirza and Bing Xu and David Warde-Farley and Sherjil Ozair and Aaron Courville and Yoshua Bengio},
+      year={2014},
+      eprint={1406.2661},
+      archivePrefix={arXiv},
+      primaryClass={stat.ML}
+}
+\fi
+
+\end{thebibliography}
+
+\end{document}

@@ -32,8 +32,6 @@
 Project category: General Machine Learning}
 }
 
-
-
 %\icmlcorrespondingauthor{}{johnjia@stanford.edu}
 %\icmlcorrespondingauthor{Sebastian Kochman}{sebastko@stanford.edu}
 %\icmlcorrespondingauthor{Jianyu Lu}{jylux@stanford.edu}
@@ -60,7 +58,51 @@ convolutional neural networks, Kaggle competition, game, simulators
 \end{comment}
 
 \section{Motivation}
-The idea for this project came from a Kaggle competition \cite{b1} where we are to predict the {\it starting state} of 25x25 board given the state of the board after a number of evolutions (between 1 to 5) following the rules prescribed in Conway's Game of Life. The board is ``wrapped'', so technically the state is infinitely large, with a recurring pattern of size 25x25. The data to learn from consists of the {\it terminal states}, the corresponding starting states (which are the labels), and the number of evolutions applied to go from the latter to the former. Our motivation to take on this project stems from some unique challenges and advantages it presents. In terms of challenges, this problem of reversing Conway's Game of Life does not fit into the mold of a standard regression or classification problem where one can immediately fit a model; instead, some ingenuity is needed to frame the problem into one amendable to ML techniques. In terms of advantages, the setting of this problem is in an idealized world where we have access to the data generator; so the key to learning a good model relies less on data processing, cleaning, feature engineering, hyperparameter tuning, but instead depends more on a deep understand of the problem and creative application of the modeling techniques that can model the relationship between the starting states and the terminal states. 
+The idea for this project came from a Kaggle competition \cite{b1} where we are to predict the {\it starting state} of 25x25 board given the state of the board after a number of evolutions (between 1 to 5) following the rules prescribed in Conway's Game of Life. The board is \emph{wrapped around} in the sense that the cells at the borders neighbor each other. The data to learn from consists of the {\it terminal states}, the corresponding starting states (which are the labels), and the number of evolutions applied to go from the latter to the former. Our motivation to take on this project stems from some unique challenges and advantages it presents. In terms of challenges, this problem of reversing Conway's Game of Life does not fit into the mold of a standard regression or classification problem where one can immediately fit a model; instead, some ingenuity is needed to frame the problem into one amendable to ML techniques. In terms of advantages, the setting of this problem is in an idealized world where we have access to the data generator; so the key to learning a good model relies less on data processing, cleaning, feature engineering, hyper-parameter tuning, but instead depends more on a deep understand of the problem and creative application of the modeling techniques that can model the relationship between the starting states and the terminal states. 
+
+\section{Problem setting}
+
+\subsection{Notation}
+When speaking about a single example in the data set, we use the following notation:
+
+\begin{itemize}
+    \item $B^{(k)}$: A matrix representing the board in the $k$th step of the Game of Life, where  $B^{(k)} \in \{0,1\}^{n \times n}$, and the value for $k=0$ is considered the final board state (input to the model). To make it more explicit, we also denote $B^{(0)}$ as $B^{(\text{stop})}$.
+    \item $B_{i,j}^{(k)}$: The value of the board cell in the $i$th row and $j$th column, where $1$ means ``turned on/live'' and $0$ means ``turned off/dead''.
+    \item $\delta$: The number of steps the algorithm is asked to go backwards from $B^{(\text{stop})}$.
+    \item When applicable we'll use hat (e.g. $\hat B^{(-\delta)}$) to denote predicted outputs.
+\end{itemize}
+
+Using this notation, each example in the data set consists of inputs $\delta$ and $B^{(\text{stop})}$. The task is to output $\hat B^{(-\delta)}$ such that after evolving the Game of Life forward by $\delta$ steps, we'll obtain $\hat B^{(\text{stop})}$ which is close to $B^{(\text{stop})}$ (more on evaluation in section \ref{evaluation}).
+
+When speaking about the whole data set, in order to avoid using too many superscripts, we will use the following notation:
+
+\begin{itemize}
+    \item $x^{(i)}, y^{(i)}$: The $i$th example of $B^{(\text{stop})}$ and $B^{(-\delta^{(i)})}$ correspondingly. %, flattened as $x^{(i)}, y^{(i)} \in \{0, 1\}^{n^2}$.
+\end{itemize}
+
+%Things missing in this notation which we may want to improve upon:
+%\begin{itemize}
+%    \item We may want to build notation around sets of possible boards (currently the notation suggests that there is just one value of $B^{(-\delta)}$, which is not true in general).
+%\end{itemize}
+
+\subsection{Data Generation}
+Data is generated according to the following procedure prescribed by the competition \cite{b1}:
+
+\begin{enumerate}
+\item An initial board is chosen by filling the board with a random density between 1\% full (mostly zeros) and 99\% full (mostly ones).
+\item This initial board is evolved 5 steps.
+\item The starting board's state is recorded after the 5 ``warm-up steps''. This becomes the {\it start} matrix $B^{(-\delta)}$.
+\item The starting board is then evolved $\delta$ steps. $\delta$ is chosen to be uniformly random between $1$ and $5$ (inclusive). If the stopping board turns out to be empty, the game is discarded.
+\item The stopping board's state is then recorded as the {\it stop} matrix $B^{(\text{stop})}$.
+\end{enumerate}
+
+$B^{(\text{stop})}$ and $\delta$ are inputs to the prediction function (where often only $B^{(\text{stop})}$ is the input to an ML model, and $\delta$ controls how many times the model prediction is called). $B^{(-\delta)}$ is one of (often many) correct outputs and can be used during training.
+
+In addition to using the data sets provided by Kaggle, we have also built a data generator following rules above. Using such generator, we can train on vastly more data than provided by the competition organizers. It's easy to generate many validation sets, so we don't have to worry about overfitting out experiments to a particular validation set. The generator accepts arguments like: size of the board, $\delta_{\min}$, $\delta_{\max}$, range of density etc., so we can also easily generate scenarios outside the scope of the Kaggle competition---this can be particularly useful while analyzing our methods in simpler settings. Data generator is initialized with a random seed, to ensure reproducible results.
+
+\subsection{Evaluation}
+\label{evaluation}
+For model evaluation, we will use the evaluation criterion defined in the Kaggle competition, which is the mean absolute error (MAE) of the terminal state reach by our model's prediction and the actual terminal state. Mathematically, this is given by $$\frac{\sum_{i=1}^{m}\sum_{j=1}^{n}\sum_{k=1}^{n}|x_{j,k}^{(i)} - \hat x_{j,k}^{(i)}|}{m \times n^2},$$ where $x^{(i)}$ is the $i$th ground truth terminal state ($B^{(\text{stop})}$), and $\hat x^{(i)}$ is the terminal state ($\hat B^{(\text{stop})}$) evolved from the $i$th predicted starting board ($\hat B^{(-\delta^{(i)})}$), $m$ is number of examples in a data set and $n$ is the width/height of the board ($25$ by default).
 
 \section{Method}
 
@@ -71,39 +113,18 @@ Secondly, we can use the fact that it is easy to simulate the Game of Life forwa
 Using these facts, we can divide methods to explore along three dimensions:
 
 \begin{enumerate}
-    \item Model architectures used to learning representions of the board state -- we plan to experiment mostly with convolutional neural networks and its variations (like graph convolutional neural networks).
+    \item Model architectures used to learning representions of the board state---we plan to experiment mostly with convolutional neural networks.
     
-    \item Learning paradigm -- supervised learning using examples generated by a simulator will be our primary machine learning paradigm. We also plan to explore some more speculative ideas, such as variational autoencoder, reinforcement learning, and generative adversarial networks (GANs).
+    \item Learning paradigm---supervised learning using examples generated by a simulator will be our primary machine learning paradigm.
     
-    \item Additional tricks leveraging search/heuristics -- since we have access to a simulator which can be used to validate output of the ML model at each step, we can use that fact to correct the model's errors by searching nearby states, e.g., inference code could examine and validate not only top 1, but top $K$ highest scored bitmaps according to the ML model. 
-    
-    % While designing any such strategy, we must keep in mind the code run time limit set by the Kaggle competition (2 hours on GPU or 9 hours on CPU for processing 50k test examples).
+    \item Additional tricks leveraging search/heuristics---since we have access to a simulator which can be used to validate output of the ML model at each step, we can use that fact to correct the model's errors by searching nearby states, e.g., inference code could examine and validate not only top 1, but top $K$ highest scored bitmaps according to the ML model. 
     
 \end{enumerate}
+Currently we have implemented a subset of these potential methods, the details of which are provided in Section 3.
 
-\subsection{Data generation}
-Since we have access to a simulator stepping the game forward, we don't have to limit ourselves to static data sets provided by Kaggle.
+\section{Preliminary Experiments}
 
-We have built a simple data generator following the rules specified by the competition \cite{b1}:
-
-\begin{itemize}
-\item An initial board is chosen by filling the board with a random density between 1\% full (mostly zeros) and 99\% full (mostly ones).
-\item This initial board is evolved 5 steps.
-\item The starting board's state is recorded after the 5 ``warm-up steps''. This becomes the {\it start} matrix.
-\item The starting board is then evolved $\delta$ steps. $\delta$ is chosen to be uniformly random between $1$ and $5$ (inclusive). If the stopping board turns out to be empty, the game is discarded.
-\item The stopping board's state is then recorded as the {\it stop} matrix.
-\end{itemize}
-
-The {\it stop} matrix and $\delta$ are inputs to the prediction function (where often just {\it stop} is the input to an ML model, and $\delta$ controls how many times the model prediction should be called). The {\it start} matrix is one of (often many) correct outputs and can be used during training.
-
-Using such generator, we can train on a hypothetically infinitely large data set. It's easy to generate many validation sets, so we don't have to worry about overfitting out experiments to a validation set. The generator accepts arguments like: size of the board, $\delta_{\min}$, $\delta_{\max}$, range of density etc., so we can also easily generate scenarios outside the scope of the Kaggle's competition - this can be particularly useful while analyzing our methods in simpler settings. Data generator is initialized with a random seed, to ensure reproducible results.
-
-\subsection{Evaluation}
-For model evaluation, we will use the evaluation criterion defined in the Kaggle competition, which is the mean absolute error of the terminal state reach by our model's prediction and the actual terminal state. Mathematically, this is given by $$\frac{\sum_{i=1}^{m}\sum_{j=1}^{n}|y_{j}^{(i)} - \hat y_{j}^{(i)}|}{m \times n},$$ where $y_{j}^{(i)}$ is the value of the $j$th cell in the $i$th ground truth terminal state, and $\hat y_{j}^{(i)}$ is the value of the $j$th cell from the $i$th predicted starting board after evolution, $m$ is number of examples in a data set and $n$ is number of pixels in the board ($625$ by default).
-
-\section{Preliminary experiments}
-
-\begin{table}[]
+\begin{table*}[t]
     \centering
     \begin{tabular}{|c|c|c|}
     \hline
@@ -116,9 +137,9 @@ For model evaluation, we will use the evaluation criterion defined in the Kaggle
     \end{tabular}
     \caption{Evaluation results on a validation set with 10k examples.}
     \label{tab:eval_results}
-\end{table}
+\end{table*}
 
-\subsection{Trivial baselines}
+\subsection{Trivial Baselines}
 We first established a couple of trivial baselines to get a sense for minimal metrics that more sophisticated approaches should beat:
 \begin{itemize}
     \item {\it Constant zeros} - returning always a board of zeros.
@@ -130,17 +151,17 @@ We first established a couple of trivial baselines to get a sense for minimal me
 We have tried a few simple CNN architectures. The best results so far have been achieved with the following sequence of layers:
 
 \begin{itemize}
-    \item Conv2D: filter 5x5, output channels 16, activation ReLU
-    \item Conv2D: filter 5x5, output channels 8, activation ReLU
-    \item Conv2D: filter 3x3, output channels 4, activation ReLU
-    \item Conv2D: filter 3x3, output channels 1, activation sigmoid
+    \item {\tt Conv2D}: filter 5x5, output channels 16, activation ReLU
+    \item {\tt Conv2D}: filter 5x5, output channels 8, activation ReLU
+    \item {\tt Conv2D}: filter 3x3, output channels 4, activation ReLU
+    \item {\tt Conv2D}: filter 3x3, output channels 1, activation sigmoid
 \end{itemize}
 
-All of the layers use padding with zeros, so the output tensor is of the same size as input - 25x25, with 1 channel. We used the Adam optimizer with default hyper-parameters in Tensorflow and the binary cross-entropy loss. The model reported in table \ref{tab:eval_results} was obtained after training on 71,680 examples (randomly generated, never repeated) with batch size 2048.
+All of the layers use padding with zeros, so the output tensor is of the same size as input---25x25, with 1 channel. We used the Adam optimizer with default hyper-parameters in TensorFlow and the binary cross-entropy loss. The model reported in Table \ref{tab:eval_results} was obtained after training on 71,680 examples (randomly generated, never repeated) with batch size 2048.
 
-It's worth noting that the out-of-box padding techniques offered by Tensorflow - {\it valid} (no padding) and {\it same} (padding with zeros) - do not fit our problem well, where the board is ``wrapped'' (i.e., it's an infinitely large board with recurrent pattern of size 25x25). Interestingly, PyTorch offers padding which fits our scenario well - {\it circular}. However, after translating exactly the same CNN architecture to PyTorch, we haven't observed any metric benefit yet, and the results are even slightly worse (with and without the {\it circular} padding). Investigating this further will be one of our next steps.
+It's worth noting that the out-of-box padding techniques offered by TensorFlow---{\it valid} (no padding) and {\it same} (padding with zeros)---do not fit our problem well as the board does not have borders per se but instead \emph{wraps around}. Interestingly, PyTorch offers padding which fits our scenario well---{\it circular}. However, after translating exactly the same CNN architecture to PyTorch, we haven't observed any metric benefit yet, and the results are even slightly worse (with and without the {\it circular} padding). Investigating this further will be one of our next steps.
 
-The reader may notice lack of pooling layers in our CNN architecture, which is also atypical for most scenarios where CNNs are used. While we definitely want to experiment with pooling layers, they cannot be applied in a trivial way, for two reasons:
+The reader may notice a lack of pooling layers in our CNN architecture, which is also atypical for most scenarios where CNNs are used. While we definitely want to experiment with pooling layers, they cannot be applied in a trivial way, for two reasons:
 \begin{itemize}
     \item The output dimensions need to match input dimensions in our problem, so any dimensions reduced by pooling would need to be recreated via generation layers.
 
@@ -149,27 +170,61 @@ The reader may notice lack of pooling layers in our CNN architecture, which is a
 
 We are exploring ways to concatenate output obtained from pooling layers (carrying embedding of the ``global'' state), with the output obtained from filters with no pooling, to find the compromise.
 
-\subsection{Algorithmic approach: tile graph}
-We have explored possible algorithmic solutions to the problem. The motivation was to establish stronger baselines, but also to explore ideas that could potentially benefit from Machine Learning in a hybrid solution.
+\subsection{Algorithmic Approach: Tile Graph}
+We have explored possible algorithmic solutions to the problem. The motivation was to establish stronger baselines, but also to explore ideas that could potentially benefit from machine learning in a hybrid solution.
 
-We are not aware of an accurate solution to the problem with polynomial computational complexity. However, we have come up with a heuristic algorithm inspired by graph theory and dynamic programming, which we believe could be further improved and extended with ML.
+We are not aware of an accurate solution to the problem with polynomial computational complexity. However, we have come up with a heuristic algorithms inspired by graph theory and dynamic programming, which we believe could be further improved and extended with ML.
 
-In this approach, we observe that the value of any particular pixel $B^{(\text{stop})}_{ij}$ depends only on the value of the same pixel on the previous board and its closest neighbors: $B^{(-1)}_{i+a,j+b}$ where $a, b \in \{-1, 0, 1\}$. Hence, we can easily pre-compute a list of all 3x3 {\it tiles} that are possible predecessors of bit $0$ and $1$. There are just $2^9=512$ such tiles.
+In this approach, we observe that the value of any particular pixel $B^{(\text{stop})}_{i,j}$ depends only on the value of the same pixel on the previous board and its closest neighbors: $B^{(-1)}_{i+a,j+b}$ where $a, b \in \{-1, 0, 1\}$. Hence, we can easily pre-compute sets of all matrices $\{0, 1\}^{3\times3}$ that are possible predecessors of bit $0$ and $1$. Let's denote these sets as $T^{(0)}$ and $T^{(1)}$, correspondingly, and $T = \{0, 1\}^{3\times3}$ as the super set of all such matrices. Note that $T = T^{(0)} \cup T^{(1)}$ and $T^{(0)} \cap T^{(1)} = \emptyset$. $|T| = 2^9 = 512$, so it's easy to fit in memory.
 
-We also observe [...]
+Next, we observe that we can define relationships between matrices in $T$---informally, some of them are not compatible with each other, while others can be fitted together on the board $B$, e.g. as follows:
+\begin{itemize}
+    \item horizontally---at coordinates $B_{i,j}$ and $B_{i,j+1}$,
+    \item vertically---at coordinates $B_{i,j}$ and $B_{i+1,j}$
+\end{itemize}
 
-\section{Next steps}
+Those relationships between tiles in $T$ define graphs of {\it horizontal } and {\it vertical compatibility}.
 
-[this section is currently copied from proposal, needs re-writing]
+The algorithm starts by copying sets $T^{(0)}$ and $T^{(1)}$ and assigning them to each pixel on $B^{(\text{stop})}$. Then, it uses the compatibility graphs to find the compatible configuration of matrices that would result in correct state $B^{(-1)}$.
 
-As outlined the previous sections, our initial experiments are supervised learning algorithms using either a multi-layer perceptron or a CNN (or possible a GCN) to predict the starting state pixel-by-pixel. We also plan to perform experiments using generative models (something along the lines of learning a joint probability distribution $\mathbf P(x, y)$ where $x, y$ are pixels/regions in the starting and terminal state respectively). We also have some other ideas around RL and GAN that we may explore time permitting. As we are a team of three, we plan to each take on an idea to experiment with for the first two weeks and settle on the one that is most promising once we have some results.
+There are many ways to use the graph---searching the graph using DFS results in a correct response all the time, but is prohibitively expensive computationally. We have experimented with heuristic approaches to prune ``least likely'' connections in the graph first, which speeds up the algorithm, but results in poor accuracy.
+
+We are planning to experiment with using ML---possibly even reinforcement learning---to help with pruning the graph intelligently.
+
+\subsection{Simple Probabilistic Model}
+Another direction we explored is inspired by generative models. Since there are many starting boards that evolve to the same board, the mapping from an evolved board to its parent boards is a one-to-many relationship and can be modeled by a distribution $\mathbf P(\textrm{parent board} | \textrm{board})$ for boards of various sizes. Expanding on this idea, we learned empirical probabilities of $\mathbf P(c_{ij} | t_{ij})$, where $c_{ij}$ is the cell at location ($i, j$) in the parent board and $t_{ij}$ is the $3 \times 3$ tile centered at ($i, j$) in the evolved board. For this, we generated 200,000 parent board--evolved board pairs using our data generator and used them as the inputs to generate these empirical probabilities. 
+
+Once we have the empirical probabilities $\mathbf P(c_{ij} | t_{ij})$, we can make predictions (or more precisely, educated guesses) of the parent board by looping through every $3 \times 3$ tile $t_{ij}$ in the evolved board and sampling the corresponding center cell $c_{ij}$ (which is either 0 for ``dead'' or 1 for ``live'') in the parent board using a Bernoulli distribution with parameter $\mathbf P(c_{ij} | t_{ij})$. Note we can repeat this process $\delta$ times to predict the ancestor boards that are $\delta$ steps up the chain of evolution. In addition, we can make several of such educated guesses and select the one that has the least MAE. With this approach we achieved a MAE of $0.2392$ on the test set.
+
+\section{Next Steps}
+As described in the previous section, our initial experiments include training a CNN model and a simple probabilistic model. Each of these can be improved on in various ways, which will be our next focus. 
+
+For the CNN architecture, we can introduce pooling layers, inception-style layers \cite{b3}, adding residual skip connections \cite{b4}, and introduce other architectural modifications. Another area with significant opportunity to make improvements is the loss function used to train the CNN. Right now our loss function is essentially the MAE between the predicted board and the provided starting board, which does not teach the model to learn other possible starting boards. To rectify this, we can introduce another convolutional layer with prescribed, fixed weights which actually performs the evolution, similar to what's done in \cite{b5}. 
+
+For the probabilistic model, we like to perform some more data analysis to see whether we can uncover some interesting statistical patterns in corresponding tiles in the parent and child boards. In addition, we want to spend some time looking into representing the relationship using a probabilistic graphical model.
+
+We also noticed in both the CNN and the probabilistic approaches that running the model multiple times to predict the starting board $\delta$ evolutions ago ($\delta > 1$) gives worse predictions than just predicting the parent board one evolution ago. This agrees with our intuition since the error introduced by the model is propagated and magnified with each additional prediction. One way to rectify this is to train separate models for each $\delta$ (for $\delta$ between 1 and 5 inclusive).
 
 \section{Contributions}
-[...]
+The authors contributed equally to the project: %We outline their individual contributions below.
+\begin{itemize}
+    \item \textbf{Johnson Jia} implemented the simple probabilistic model and contributed to writing and editing the project proposal as well as this milestone report.
 
-\begin{thebibliography}{00}
+    \item \textbf{Sebastian Kochman} implemented skeleton code for data generation and evaluation, evaluated baseline approaches, tile graph-based heuristics and the CNN V1 model, as well as contributed to writing the milestone report.
+
+    \item \textbf{Jianyu Lu} implemented a simple CNN which achieves similar results to CNN V1, completed and submitted the team's first Kaggle notebook.
+
+\end{itemize}
+
+\begin{thebibliography}{00}         
 \bibitem{b1} ``Conway's Reverse Game of Life 2020,'' \url{https://www.kaggle.com/c/conways-reverse-game-of-life-2020/overview}
 \bibitem{b2} ``Conway's Game of Life,'' Wikipedia \url{https://en.wikipedia.org/wiki/Conway\%27s_Game_of_Life}
+\bibitem{b3} ``Going Deeper with Convolutions'' \url{https://static.googleusercontent.com/media/research.google.com/en//pubs/archive/43022.pdf}
+\bibitem{b4} ``Deep Residual Learning for Image Recognition''
+\url{https://arxiv.org/abs/1512.03385}
+\bibitem{b5} ``It’s Hard For Neural Networks to Learn the Game of
+Life''
+\url{https://arxiv.org/pdf/2009.01398.pdf}
 \end{thebibliography}
 
 \end{document}
