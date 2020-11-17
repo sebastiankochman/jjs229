@@ -9,6 +9,7 @@
 \usepackage{textcomp}
 \usepackage{xcolor}
 \usepackage{listings}
+\usepackage[ruled]{algorithm2e}
 \def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
     T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
     
@@ -56,99 +57,130 @@ The Game of Life is a \emph{life-like} cellular automaton \cite{lifelike} where 
 \end{enumerate}
 Whereas this forward evolution in the Game of Life can be modeled perfectly using a convolutional neural network---in fact, one such CNN is prescribed in the appendix of  \cite{b5}---learning to reverse the Game of Life is much more challenging. For one, many different boards can evolve to the same board, so a supervised learning approach with the evolved boards as the input and their predecessors---that is, the boards from which they evolved---as the output is unlikely to work. In this paper, we describe an approach which partially overcomes this one-to-many problem when reversing the Game of Life.
 
-As the idea for this project came from a Kaggle competition \cite{b1}, we adopt many of the problem settings outlined in the competition (with some minor differences)\footnote{In particular, the competition requires reversing multiple steps whereas we solely focus on reversing just one step in this paper.}. We will focus on boards of size $25 \times 25$, with wrap-around in the sense that cells on the left-edge (top-edge) are considered adjacent to the cells on the right-edge (bottom-edge) in the same row (column). We also focus on reversing just one step of the Game of Life, as its difficulty is representative of the general problem of reversing $\delta$ steps, and a model that does well in this special case should in theory be easy to generalize to the general case\footnote{Although in actuality we noticed that minor errors in the one-step reversal get amplified significantly during repeated application of the model to reverse multiple steps. We leave this generalization work for the future.}.
+As the idea for this project came from a Kaggle competition \cite{b1}, we adopt many of the problem settings outlined in the competition (with some minor differences)\footnote{In particular, the competition requires reversing multiple steps whereas we solely focus on reversing just one step in this paper.}. \label{wraparoundboard} We will focus on boards of size $25 \times 25$, with wrap-around in the sense that cells on the left-edge (top-edge) are considered adjacent to the cells on the right-edge (bottom-edge) in the same row (column). We also focus on reversing just one step of the Game of Life, as its difficulty is representative of the general problem of reversing $\delta$ steps, and a model that does well in this special case should in theory be easy to generalize to the general case\footnote{Although in actuality we noticed that minor errors in the one-step reversal get amplified significantly during repeated application of the model to reverse multiple steps. We leave this generalization work for the future.}.
 
 \subsection{Notation}
 In order to aid the discussion, we adopt the following notation:
 
 \begin{itemize}
-    \item $B$: A $25 \times 25$ matrix with entries in $0$ (dead or off) or $1$ (live or on) representing a board state (or just ``board'') in the Game of Life. Also we use $B^{(\mathrm{stop})}$ to denote the \emph{evolved} or final board state after one evolution.
+    \item $B$: A $25 \times 25$ matrix with entries in $0$ (dead or off) or $1$ (live or on) representing a board state (or just ``board'') in the Game of Life. We also use $B^{s}$ and $B^{e}$ to denote the starting board and its one-step evolution, which we refer to as the \emph{evolved} or stop board.
     \item $B_{i,j}$: The value of the cell in the $i$th row and $j$th column of $B$. We consider the board $B$ is wrapped around the edges, so each cell $B_{i, j}$ has exactly 8 neighbors (or adjacent cells). 
     \item When applicable we'll use hat (e.g. $\hat B$) to denote predicted outputs.
 \end{itemize}
 
-Using this notation, our goal is to train a model on a set of boards $\{B^{(i)}\}$ to predict one of the (potentially) many $B$'s that evolve to a given $B^{(\mathrm{stop})}$.
+Using this notation, our goal is to train a model on a set of boards $\{B^{(i)}\}$ to predict one of the (potentially) many $B^{s}$'s that evolve to a given $B^{e}$.
 
 \section{Related Work}
+In \cite{b5}, the authors worked on training a neural network to predict the forward evolution. This is a much simpler solution with a known solution---a three-layered CNN---alluded to earlier. The authors however showed that training such a three-layered CNN from scratch fails to learn the forward evolution, but instead one has to increase the size of the model fairly substantially in order to learn it with perfect accuracy.
 
-Game of Life's forward function has been studied in the context of teaching convolution neural networks (cite).
+Game of Life's forward function has been studied in the context of teaching convolution neural networks (\todo{cite}).
 
 In principle, the problem we study is finding an inverse of a complex non-linear function.  Independent component analysis (ICA)  is an unsupervised method of finding a reverse of linear transformation that produced observed data. There has been recently a lot of progress in studying non-linear ICA (cite https://arxiv.org/abs/1805.08651 , https://arxiv.org/abs/1710.05050 ), which often involve generative adversarial nets (GANs cite https://arxiv.org/abs/1406.2661). In our work, we study applicability of GANs to reversing Game of Life.
 
 \section{Dataset}
 
-We created a data generator (following the procedure prescribed by the aforementioned Kaggle compeition) to generate the datasets used for training and evaluation.
+We created a data generator (following the procedure prescribed by the aforementioned Kaggle competition) to generate the datasets used for training and evaluation.
 
 \begin{enumerate}
-\item An initial board is chosen by filling the board with a random density of live cells between 1\% full (mostly 0's) and 99\% full (mostly 1's).
-\item This initial board is evolved 5 steps to ``warm up'' the board. This is partly to 
-\item The starting board's state is recorded after the 5 ``warm-up steps''. This becomes the {\it start} matrix $B^{(-\delta)}$.
-\item The starting board is then evolved $\delta$ steps. $\delta$ is chosen to be uniformly random between $1$ and $5$ (inclusive). If the stopping board turns out to be empty, the game is discarded.
-\item The stopping board's state is then recorded as the {\it stop} matrix $B^{(\text{stop})}$.
+\item An initial board is chosen by filling the board with a random density of live cells between 1\% (mostly 0's) and 99\% (mostly 1's).
+\item This initial board is evolved 5 steps to ``warm up'' the board. This is partly to evolve the board into a state that's more ``life-like''. This post-warm-up board will be a starting board $B^{s}$.
+\item We then evolve $B^{s}$ one step to get $B^e$. If the stopping board turns out to be empty, we discard $B^s$ and $B^e$ and start over.
 \end{enumerate}
 
-$B^{(\text{stop})}$ and $\delta$ are inputs to the prediction function (where often only $B^{(\text{stop})}$ is the input to an ML model, and $\delta$ controls how many times the model prediction is called). $B^{(-\delta)}$ is one of (often many) correct outputs and can be used during training.
+Since there are $2^{25 \times 25}$ different possible $B$'s, the data we can use is effectively infinite and is not a constraint on the quality of our model\footnote{With that said, our compute and memory resources are limited so we restricted our training dataset to 128000 start-stop board pairs}. 
 
-In addition to using the data sets provided by Kaggle, we have also built a data generator following rules above. Using such generator, we can train on vastly more data than provided by the competition organizers and even generate an infinite stream of data. We can also generate many validation sets, so  overfitting can be easily detected and avoided.
-
-%The generator accepts arguments like: size of the board, $\delta_{\min}$, $\delta_{\max}$, range of density etc., so we can also easily generate scenarios outside the scope of the Kaggle competition---this can be particularly useful while analyzing our methods in simpler settings. Data generator is initialized with a random seed, to ensure reproducible results.
+One convenient feature of this dataset is that each board is naturally a $25 \times 25$ matrix, which can be directly fed into a CNN as a single-channel image of width and height 25.
 
 \section{Methods}
+As mentioned in the introduction, one of the inherent challenges in reversing the Game of Life is that this reversal is not one-to-one but one-to-many. For instance, take any board $B^s$ with a $3 \times 3$ region with all dead cells, you can replace the center cell in this region with a live cell, and get a $B^{s'}$ that evolves to the same $B^e$. The problem, in fact, is much more severe since typical evolved boards have mostly dead cells, and it's easy to see that there are many $3 \times 3$ boards whose cells all die after one evolution. This means that simply using the evolved boards $B^e$'s as the input and their corresponding starting boards $B^s$' as the output to train a supervised learning model will not work very well.
 
-Firstly, we would like to note that solving the problem for a single step backwards should provide a solution for $N$ steps backwards, by repeating the process. \todo{Consider removing.}
+On the other hand, we note that the function $B^e$ to $B^s$ to $B^e$---reverse the evolution then evolve forward---is always one-to-one. This line of thought led to our first breakthrough, which we call the \emph{Reverse-Forward Network}.
 
+\subsection{Reverse-Forward Network}
+\label{revfwdnet}
+The Reverse-Forward Network is a two-stage network consisting of a forward CNN $F$ that mimics the evolution in the Game of Life, and a reverse CNN $R$ that tries to reverse one evolution in the Game of Life. Now, given an evolved board $B^e$, we want $F(R(B^e))$ to equal to $B^e$---that is, first reversing $B^e$ to some $\hat B = R(B^e)$ then evolving $\hat B$ by $F$ should recover $B^e$. So the problem becomes training $F \circ R$ to predict $B^e$ from $B^e$. Now, in order to ensure $F \circ R$ does not reduce to the identity function, we fix the weights of $F$ during training, such that only the weights of $R$ are updated. This in theory should help $R$ to learn to reverse the Game of Life.
 
-\subsection{Reverse-Forward Net}
+While we know of a three-layered CNN that perfectly replicates the evolution in Game of Life \cite{b5}, it cannot be used as the $F$ in the above algorithm since it assumes the inputs are binary\footnote{We did try using this CNN as the F and the results were poor. Also we noted that its behavior on non-binary inputs is unpredictable}, whereas the output of any $R$ is necessarily non-binary (and we cannot apply a step function to coerce the output of R into binary values because the gradient will all go to 0 and not back-propagate through to the weights of $R$). In order to overcome this, we trained a \emph{Relaxed Forward Network} whose inputs are $25 \times 25$ matrices with floating point values between 0 and 1 that represent \emph{relaxed} or \emph{softened} versions of Game of Life boards, in the sense that cells with values in $[0, 0.5)$ are considered dead and cells with values in $[0.5, 1]$ are considered alive. We then train $F$ on these relaxed input boards to predict the evolved boards of their non-relaxed counterparts. Note this $F$ is taught to treat cells with value less than 0.5 as dead and cells with value greater or equal to 0.5 as alive, which is what we want.
 
-Our method is based on training two deep neural networks:
-\begin{itemize}
-    \item \textbf{Forward network} - given input $B^{(-\delta)}$ and $\delta$, generates the stopping board $\hat B^{(stop)}$ which is supposed to be close to the real $B^{(stop)}$ in the Game of Life.
-    \item \textbf{Reverse network} - given input $B^{(stop)}$ and $\delta$, generates the starting board $\hat B^{(-\delta)}$.
-\end{itemize}
+To summarize, the Reverse-Forward Network is trained as follows:
+\begin{enumerate}
+    \item \textbf{Relaxed Forward Network}: We train $F$ to predict evolved boards on relaxed starting boards.
+    \item \textbf{Reverse Forward Network}: We fixed the weights of $F$ and train $F \circ R$ on non-relaxed boards $B^e$'s to recover $B^e$'s. (So we want $F \circ R$ to be the identity function.) The network $R$ can then learn to reverse the Game of Life.
+\end{enumerate}
 
-Note that in most of our experiments, we focused on models handling only $\delta = 1$, and enabled inference for $\delta = {2,...,5}$ via inference code around the ML model.
+Only network $R$ is used during inference.
 
-\subsection{Generative Collaborative Networks}
+The architecture for the Reverse-Forward Network is shown in \todo{\ref{Reverse-Forward architecture}}.
 
-Inspired by generative adversarial networks \todo{(cite)}, we propose a novel algorithm adapted to our problem settings, called Generative Collaborative Networks.
+One deficiency of this approach is that the distribution\footnote{We used a uniform distribution on $[0, 1]$ to generated the relaxed boards.} of the live cells in the relaxed boards used to train $F$ is likely different from the output of $R$. This can be improved by retraining $F$ on this output of $R$. Improving on the Reverse-Forward Net led us to an approach inspired by Generative Adversarial Networks, which we refer to as \emph{Generative Collaborative Network}.
+
+\subsection{Generative Collaborative Network}
+\label{gcn}
+Inspired by generative adversarial networks (GAN, \todo{(cite)}), we propose an extension of the \emph{Reverse-Forward} approach, called \emph{Generative Collaborative Networks} (GCN).
 
 % I don't know how to use bibtex:
 %~\cite{goodfellow2014generative}
 
-\todo{TODO: Cite GANs, describe differences and describe the algorithm on high level. Below is the algorithm copied from the GAN paper - modify it to our settings}
+In this method, training of both networks $F$ and $R$ (which are counterparts of the GAN discriminator and generator networks - $D$ and $G$ - correspondingly) happen in a closed loop described in algorithm \ref{gcn_alg}. In addition to evolved board $e$, $R$ also accepts the noise input $z$. Even though $z$ is not as critical in our problem as in, e.g., face image generation, the noise helps $R$ to generate a variety of starting boards $\hat s$ with higher confidence (more on the experimental results in section \ref{results}). 
 
-Algorithm 1 Minibatch stochastic gradient descent training of generative adversarial nets. The number of
-steps to apply to the discriminator, k, is a hyperparameter. We used k = 1, the least expensive option, in our
-experiments.
-
-for number of training iterations do
-
+The key differences between GCN and GAN are:
 \begin{itemize}
-\item Sample minibatch of $m$ noise samples $\{z^{(1)}
-, . . . , z^{(m)}\}$ from noise prior $p_g(z)$.
-\item Sample minibatch of $m$ examples ${x
-^{(1)}
-, . . . , x^{(m)}}$ from data generating distribution
-pdata(x).
-\item Update the discriminator by ascending its stochastic gradient:
-$$\nabla_{\theta_d} \frac{1}{m} \sum_{i=1}^{m} \left[ \log D(x^{(i)}) + \log \left(1 - D(G(z^{(i)}))\right) \right] $$
-\item Sample minibatch of $m$ noise samples $\{z
-^{(1)}
-, . . . , z^{(m)}\}$ from noise prior $p_g(z)$.
-\item Update the generator by descending its stochastic gradient:
-
-$$\nabla_{\theta_g} \frac{1}{m} \sum_{i=1}^{m} \log \left(1 - D(G(z^{(i)})) \right) $$
+    \item The network $F$ - contrary to GAN's discriminator - does not only output a single binary value predicting whether the input is real or fake, but the whole board $B^e$.
+    \item Calculating loss for network $F$ requires access to a simulator function $\pi : \{1,0\}^{n\times n} \rightarrow \{1,0\}^{n\times n}$ - in our case, taking $B^s$ as input and returning ground truth $B^e$ as output. $\pi$ does not have to be differentiable - it can be even a hard-coded function implemented in any programming language.
+    \item Networks $F$ and $R$, even though having different objectives, do not compete with each other. The equilibrium between networks' accuracy, as seeked in GANs, is not the goal here.
 \end{itemize}
 
-The gradient-based updates can use any standard gradient-based learning rule. We used momentum in our experiments.
+\begin{algorithm}
+    \label{gcn_alg}
+    \caption{Generative Collaborative Networks.}
+    for number of training iterations do
+    \begin{enumerate}
+    \item Sample minibatch of $m$ noise samples $\{z^{(1)}
+    , . . . , z^{(m)}\}$ from noise prior $p(z)$, and $m$ examples $\{(s^{(1)}, e
+    ^{(1)}), . . . , (s^{(m)}, e^{(m)})\}$ from data source.
+    \item For each example $i\in\{1,...,m\}$:
+    \begin{enumerate}
+        \item Predict reverse $\hat s^{(i)} = R(e^{(i)}, z^{(i)})$
+        \item Simulate step forward $\hat e_\pi^{(i)} = \pi(\hat s^{(i)})$
+        \item Update parameters of $R$ by descending its gradient:
+        
+        $$\nabla_R \text{BCE}((F \circ R) (e^{(i)}, z^{(i)}), e^{(i)}) $$
+        
+        where $\text{BCE}$ stands for binary cross-entropy loss.
+        
+        \item Update parameters of $F$ by descending its gradient:
+        
+        $$\nabla_F \left(\text{BCE}(F(s^{(i)}), e^{(i)}) + \text{BCE}(F(\hat s^{(i)}), \hat e_{\pi}^{(i)})\right)$$
+    \end{enumerate}
+    \end{enumerate}
+\end{algorithm} 
 
+Note that if we run algorithm \ref{gcn_alg} twice, with minor modifications, it reduces to the approach described in section \ref{revfwdnet}:
+\begin{itemize}
+    \item In the first run, disable update 2.c) and change update 2.d) to just $\nabla_F \text{BCE}(F(s^{(i)}, e^{(i)}))$ - effectively just training network $F$.
+    \item In the second run, disable update 2.d) - effectively just training network $R$.
+    \item Use empty noise $z$ or ignore it in $R$.
+\end{itemize}
+
+We embrace similarity between these algorithms and in practice, the best models we have obtained so far have used a mix of these approaches, as discussed further in section \ref{results}.
+
+\subsection{Model architectures}
+In both learning approaches (see \ref{revfwdnet}, \ref{gcn}) we have used similar network architectures based on convolutional neural networks.
+
+\todo{Jianyu's diagrams/explanation of the architecture}
+
+For the models $R$ accepting additional noise input $z \in \mathbb{R}^d$, the $z$ vector is replicated $25 \times 25$ times (forming a tensor $\mathbb{R}^{d\times25\times25}$) and concatenated to the channels of one of the hidden layers of $R$.
+
+As described in section \ref{wraparoundboard}, the GoL's forward rules wrap around the edges of the board. Hence, in the convolution layers we use padding of type {\it circular} - offered out-of-box by PyTorch, but not present in many other deep learning frameworks (including Tensorflow), which impacted our decision to use PyTorch.
 
 
 \section{Results and Discussion}
+\label{results}
+Table \ref{results_table} summarizes experimental results on a validation set containing 10K examples. The following sections will explain used metrics and how the baselines and the best models were produced.
 
 \subsection{Evaluation}
 \label{evaluation}
-For model evaluation, we will use the evaluation criterion defined in the Kaggle competition, which is the mean absolute error (MAE) of the terminal state $\hat{B^{(stop)}}$ reached from the model's prediction $\hat{B^{-\delta}}$ and the actual terminal state $B^{(stop)}$. Mathematically, this is given by
+For model evaluation, we use the evaluation criterion defined in the Kaggle competition, which is the mean absolute error (MAE) of the terminal state $\hat{B^{(stop)}}$ reached from the model's prediction $\hat{B^{-\delta}}$ and the actual terminal state $B^{(stop)}$. Mathematically, this is given by
 $$\mathrm{err}(B^{(stop)}, \hat B^{(stop)}) = \frac{ \sum_{j=1}^{n}\sum_{k=1}^{n}|B_{j,k}^{(stop)} - \hat B_{j,k}^{(stop)}|}{n^2}$$
 $$\mathrm{MAE}(x, \hat x) = \frac{\sum_{i=1}^{m} \mathrm{err}(x^{(i)}, \hat x^{(i)})}{m},$$
 
@@ -158,21 +190,8 @@ $$\mathrm{MAE}(x, \hat x) = \frac{\sum_{i=1}^{m} \mathrm{err}(x^{(i)}, \hat x^{(
 where $x^{(i)}$ is the $i$th ground truth terminal state ($B^{(\text{stop})}$), and $\hat x^{(i)}$ is the terminal state ($\hat B^{(\text{stop})}$) evolved from the $i$th predicted starting board ($\hat B^{(-\delta^{(i)})}$), $m$ is number of examples in a data set and $n$ is the width/height of the board ($25$ by default).
 
 
-\iffalse
-% Latest results
-| model            |   multi-step mean |   multi-step var |   one step mean |   one step var |
-|------------------+-------------------+------------------+-----------------+----------------|
-| const_zeros      |          0.147179 |       0.00792056 |       0.147179  |     0.00792056 |
-| mirror           |          0.172068 |       0.0127246  |       0.129641  |     0.00755696 |
-| likely_starts    |          0.141522 |       0.00828948 |       0.128372  |     0.00759826 |
-| gcn              |          0.149215 |       0.0119487  |       0.0634629 |     0.00229834 |
-| gcn_multi        |          0.141785 |       0.0107674  |       0.0615779 |     0.0021672  |
-| gcn+zeros        |          0.125545 |       0.00774776 |       0.0634882 |     0.00230135 |
-| gcn+likely       |          0.124965 |       0.00788405 |       0.0633694 |     0.00231712 |
-| gcn_multi+likely |          0.123533 |       0.00780647 |       0.0614331 |     0.00218183 |
-\fi
-
 \begin{table*}[t]
+    \label{results_table}
     \centering
     \begin{tabular}{|c|c|c|c|c|}
     \hline
@@ -182,7 +201,7 @@ where $x^{(i)}$ is the $i$th ground truth terminal state ($B^{(\text{stop})}$), 
     \hline
     Constant zeros & 14.72\% & 0.79\% & 14.72\% & 0.79\% \\
     Likely starts & \textbf{14.15\%} & 0.83\% & 12.84\% & 0.76\% \\
-    GCN & 14.92\% & 1.19\% & \textbf{6.35\%} & 0.23\% \\
+    Reverse v1 & 14.92\% & 1.19\% & \textbf{6.35\%} & 0.23\% \\
     \hline
     Ensemble A & 14.17\% & 1.08\% & 6.16\% & 0.22\% \\
     Ensemble B & \textbf{12.35\%} & 0.78\% & \textbf{6.14\%} & 0.22\% \\
@@ -193,29 +212,15 @@ where $x^{(i)}$ is the $i$th ground truth terminal state ($B^{(\text{stop})}$), 
 \end{table*}
 
 \subsection{Trivial Baselines}
-We first established a couple of trivial baselines to get a sense for minimal metrics that more sophisticated approaches should beat:
+We established a couple of trivial baselines to get a sense for minimal metrics that more sophisticated approaches should beat:
 \begin{itemize}
     \item {\it Constant zeros} - returning always a board of zeros.
-    \item {\it Likely starts} - this simple heuristic tries forward simulation (for $\delta$ steps) from $3$ ``likely'' starting boards (constant zeros, a board equal to {\it stop}, and a single step forward from {\it stop}), then picks the one which achieves the highest score (per out evaluation metric) in the current example.
+    \item {\it Likely starts} - this simple heuristic tries forward simulation from 3 ``likely'' starting boards (constant zeros, a board equal to $e$, and a single step forward from $e$), then picks the one which achieves the highest score (per out evaluation metric) in the current example.
 \end{itemize}
-
-\subsection{Simple Convolutional Neural Network}
-
-We have tried a few simple CNN architectures. The best results so far have been achieved with the following sequence of layers:
-
-\begin{itemize}
-    \item {\tt Conv2D}: filter 5x5, output channels 16, activation ReLU
-    \item {\tt Conv2D}: filter 5x5, output channels 8, activation ReLU
-    \item {\tt Conv2D}: filter 3x3, output channels 4, activation ReLU
-    \item {\tt Conv2D}: filter 3x3, output channels 1, activation sigmoid
-\end{itemize}
-
-All of the layers use padding with zeros, so the output tensor is of the same size as input---$25 \times 25$, with 1 channel. We used the Adam optimizer with default hyper-parameters in TensorFlow and the binary cross-entropy loss. The model reported in Table \ref{tab:eval_results} was obtained after training on 71,680 examples (randomly generated, never repeated) with batch size 2048.
-
-It's worth noting that the out-of-box padding techniques offered by TensorFlow---{\it valid} (no padding) and {\it same} (padding with zeros)---do not fit our problem well as the board does not have borders per se but instead \emph{wraps around}. PyTorch on the other hand has {\it circular} padding should in theory work the best; however, after translating exactly the same CNN architecture to PyTorch, we did not observe any metric improvements, in fact, the results are slightly worse. Investigating this further will be one of tasks we hope to do.
 
 
 \section{Conclusion and Future Work}
+
 
 \section{Contributions}
 The authors contributed equally to the project: %We outline their individual contributions below.
