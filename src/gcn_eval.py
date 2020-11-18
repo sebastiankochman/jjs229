@@ -33,6 +33,68 @@ from tqdm import tqdm
 import itertools
 import random
 
+# Johnson's:
+class RelaxedForwardNet(nn.Module):
+    def __init__(self):
+        super(RelaxedForwardNet, self).__init__()
+        # in channels, out channels, kernel size
+        self.conv0 = nn.Conv2d(1, 8, (1, 1))
+        self.activ0 = nn.ReLU()
+        self.conv1 = nn.Conv2d(8, 16, (3, 3), padding=(1, 1), padding_mode='circular')
+        self.activ1 = nn.PReLU()
+        self.conv2 = nn.Conv2d(16, 8, (3, 3), padding=(1, 1), padding_mode='circular')
+        self.activ2 = nn.PReLU()
+        self.conv3 = nn.Conv2d(8, 4, (3, 3), padding=(1, 1), padding_mode='circular')
+        self.activ3 = nn.PReLU()
+        self.conv4 = nn.Conv2d(4, 1, (3, 3), padding=(1, 1), padding_mode='circular')
+
+    def forward(self, x):
+        x = self.activ0(self.conv0(x))
+        x = self.activ1(self.conv1(x))
+        x = self.activ2(self.conv2(x))
+        x = self.activ3(self.conv3(x))
+        x = torch.sigmoid(self.conv4(x))
+        return x
+
+class ReverseNetC(nn.Module):
+    def __init__(self):
+        super(ReverseNetC, self).__init__()
+        # in channels, out channels, kernel size
+        self.conv0 = nn.Conv2d(1, 8, (1, 1))
+        self.activ0 = nn.ReLU()
+        self.conv1 = nn.Conv2d(8, 16, (3, 3), padding=(1, 1), padding_mode='circular')
+        self.activ1 = nn.PReLU()
+        self.conv2 = nn.Conv2d(16, 8, (3, 3), padding=(1, 1), padding_mode='circular')
+        self.activ2 = nn.PReLU()
+        self.conv3 = nn.Conv2d(8, 4, (3, 3), padding=(1, 1), padding_mode='circular')
+        self.activ3 = nn.PReLU()
+        self.conv4 = nn.Conv2d(4, 1, (3, 3), padding=(1, 1), padding_mode='circular')
+
+    def forward(self, x, z=None):
+        x = self.activ0(self.conv0(x))
+        x = self.activ1(self.conv1(x))
+        x = self.activ2(self.conv2(x))
+        x = self.activ3(self.conv3(x))
+        x = torch.sigmoid(self.conv4(x))
+        return x
+
+class ReverseForwardNet(nn.Module):
+    def __init__(self, ForwardNet, forward_wt_path, ReverseNet):
+        super(ReverseForwardNet, self).__init__()
+        self.reverse_net = ReverseNet()
+        # freeze the weights of the forward net
+        self.forward_net = ForwardNet()
+        self.forward_net.load_state_dict(torch.load(forward_wt_path))
+        for param in self.forward_net.parameters():
+            param.requires_grad = False
+
+    def forward(self, x):
+        x = self.reverse_net(x)
+        x = self.forward_net(x)
+        return x
+
+# /Johnson's
+
 
 class GanGeneratorB(nn.Module):
     def __init__(self, ngpu=1, ngf=64, nz=8, use_zgen=False, sigmoid=True, use_noise=True):
@@ -116,7 +178,7 @@ def predict(net, deltas_batch, stops_batch):
     for _ in range(max_delta):
         nz = 8
         noise = torch.rand(deltas_batch.shape[0], nz, 1, 1, device=device)
-        pred_batch = torch.tensor(net(preds[-1], noise) > 0.5, dtype=torch.float)
+        pred_batch = torch.tensor(net(preds[-1], noise) > 0.5, dtype=torch.float, device=device)
         preds.append(pred_batch)
 
     # Use deltas as indices into preds.
@@ -155,6 +217,7 @@ if __name__ == '__main__':
 
     parser.add_argument('--baselines', action='store_true', help='Run baseline evaluations.')
     parser.add_argument('--gen_path', required=True, help="path to netG")
+    parser.add_argument('--johnson', action='store_true', help='evaluates Johnsons reverse-forward model')
 
     parser.add_argument('--test_seed', type=int, default=9568382, help='Random seed for test set generation.')
     parser.add_argument('--test_size', type=int, default=10000, help='Test set size.')
@@ -171,18 +234,20 @@ if __name__ == '__main__':
     def eval(predict):
         multi_step_errors = []
         one_step_errors = []
-        for batch in tqdm(grouper(bitmap.generate_test_set(set_size=args.test_size, seed=args.test_seed), 1000)):
+        for batch in tqdm(grouper(bitmap.generate_test_set(set_size=args.test_size, seed=args.test_seed), 100)):
             deltas, stops = zip(*batch)
 
             delta_batch = np.array(deltas)
             stop_batch = np.array(stops)
             start_batch = predict(deltas, stops)
 
-            multi_step_errors.append(1 - score_batch(delta_batch, start_batch, stop_batch))
+            for delta, start, stop in zip(delta_batch, start_batch, stop_batch):
+                multi_step_errors.append(1 - score(delta, start, stop))
 
             one_deltas = np.ones_like(delta_batch)
             one_step_start = np.where(deltas == 1, start_batch, predict(one_deltas, stops))
-            one_step_errors.append(1 - score_batch(one_deltas, one_step_start, stop_batch))
+            for delta, start, stop in zip(one_deltas, one_step_start, stop_batch):
+                one_step_errors.append(1 - score(delta, start, stop))
         return np.mean(multi_step_errors), np.var(multi_step_errors), np.mean(one_step_errors), np.var(one_step_errors)
 
     model_names = []
@@ -202,8 +267,11 @@ if __name__ == '__main__':
 
     device = torch.device("cuda:0" if args.cuda else "cpu")
 
-    netG = GanGeneratorB().to(device)
-    init_model(netG, args.gen_path)
+    if args.johnson:
+        netG = ReverseForwardNet(RelaxedForwardNet, args.gen_path, ReverseNetC).reverse_net.to(device)
+    else:
+        netG = GanGeneratorB().to(device)
+        init_model(netG, args.gen_path)
 
     def gcn_predict(deltas, stops):
         deltas_batch = torch.tensor(deltas).to(device)
@@ -222,12 +290,16 @@ if __name__ == '__main__':
     def gcn_multi_plus_likely(deltas, stops):
         return ensemble([gcn_predict, gcn_predict, gcn_predict, gcn_predict, gcn_predict, batchify(baselines.likely_starts)], deltas, stops)
 
-    model_names.extend(['gcn', 'gcn_multi', 'gcn+zeros', 'gcn+likely', 'gcn_multi+likely'])
+    model_names.extend(['R', 'R_multi', 'R+zeros', 'R+likely', 'R_multi+likely'])
     models.extend([gcn_predict, gcn_multi, gcn_plus_zeros, gcn_plus_likely, gcn_multi_plus_likely])
 
     data = []
     for model_name, model in zip(model_names, models):
         multi_step_mean, multi_step_var, one_step_mean, one_step_var = eval(model)
-        data.append((model_name, multi_step_mean, multi_step_var, one_step_mean, one_step_var))
+        data.append((model_name, f'{one_step_mean*100:.2f}%', f'{one_step_var*100:.2f}%', f'{multi_step_mean*100:.2f}%', f'{multi_step_var*100:.2f}%'))
 
-    print(tabulate(data, headers=['model', 'multi-step mean', 'multi-step var', 'one step mean', 'one step var'], tablefmt='orgtbl'))
+    print(tabulate(data, headers=['model', 'one step mean', 'one step var', 'multi-step mean', 'multi-step var'], tablefmt='orgtbl'))
+
+
+    print(tabulate(data, headers=['model', 'one step mean', 'one step var', 'multi-step mean', 'multi-step var'], tablefmt='latex'))
+

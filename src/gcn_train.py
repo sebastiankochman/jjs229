@@ -408,22 +408,16 @@ def train(
     samples_before = start_iter * epoch_samples
     for j, data in enumerate(dataloader, 0):
         i = start_iter * epoch_samples // batchSize + j
-        ############################
-        # (1) Update F (forward) network -- in the original GAN, it's a "D" network (discriminator)
-        # Original comment: Update D network: maximize log(D(x)) + log(1 - D(G(z)))
-        ###########################
         # train with real starting board -- data set provides ground truth
-        netF.zero_grad()
         start_real_cpu = data[0].to(device)
         stop_real_cpu = data[1].to(device)
         batch_size = start_real_cpu.size(0)
 
-        output = netF(start_real_cpu)
-        errD_real = criterion(output, stop_real_cpu)
-        if learn_forward:
-            errD_real.backward()
-        D_x = (output.round().eq(stop_real_cpu)).sum().item() / output.numel()
-
+        ############################
+        # (2) Update G network: maximize log(D(G(z)))
+        ###########################
+        netG.zero_grad()
+        netF.zero_grad()
         # train with fake -- use simulator (life_step) to generate ground truth
         # TODO: replace with fixed forward model (should be faster, in batches and on GPU)
         noise = rand_f(batch_size, nz, 1, 1, device=device)
@@ -431,6 +425,24 @@ def train(
         fake_np = (fake > pred_th).detach().cpu().numpy()
         fake_next_np = life_step(fake_np)
         fake_next = torch.tensor(fake_next_np, dtype=torch.float32).to(device)
+
+        output = netF(fake)
+        errG = criterion(output, stop_real_cpu)
+        errG.backward()
+        D_G_z2 = (output.round().eq(fake_next)).sum().item() / output.numel()
+        optimizerG.step()
+        ############################
+        # (1) Update F (forward) network -- in the original GAN, it's a "D" network (discriminator)
+        # Original comment: Update D network: maximize log(D(x)) + log(1 - D(G(z)))
+        ###########################
+
+        netG.zero_grad()
+        netF.zero_grad()
+        output = netF(start_real_cpu)
+        errD_real = criterion(output, stop_real_cpu)
+        if learn_forward:
+            errD_real.backward()
+        D_x = (output.round().eq(stop_real_cpu)).sum().item() / output.numel()
 
         output = netF(fake.detach())
         errD_fake = criterion(output, fake_next)
@@ -447,16 +459,6 @@ def train(
         fake_mae = 1 - fake_scores.mean()
         fake_density = fake_np.mean()
         real_density = start_real_cpu.detach().cpu().mean()
-
-        ############################
-        # (2) Update G network: maximize log(D(G(z)))
-        ###########################
-        netG.zero_grad()
-        output = netF(fake)
-        errG = criterion(output, stop_real_cpu)
-        errG.backward()
-        D_G_z2 = (output.round().eq(fake_next)).sum().item() / output.numel()
-        optimizerG.step()
 
         samples_in_epoch += batch_size
         s = samples_before + samples_in_epoch
