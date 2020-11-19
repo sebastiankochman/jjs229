@@ -190,11 +190,11 @@ We embrace similarity between these algorithms and in practice, the best models 
 \begin{center}
 \includegraphics[width=0.5\textwidth]{RFN.png}
 \caption{The CNN architectures used for the reverse network $R$ and the forward network $F$.}
-\end{center}
 \label{fig:RFNnetwork}
+\end{center}
 \end{figure}
 
-In both learning approaches (see Sections \ref{revfwdnet} and \ref{gcn}) we have used similar network architectures based on convolutional neural networks. The best architectures, according to our experimental results, are presented in the diagram \ref{fig:RFNnetwork}.
+In both learning approaches (see Sections \ref{revfwdnet} and \ref{gcn}) we have used similar network architectures based on convolutional neural networks. The best architectures, according to our experimental results, are presented in Figure \ref{fig:RFNnetwork}.
 
 To design the architecture for $F$, we started with the insights presented in \cite{springer2020its}. Note that $F$ does not require convolution filters larger than $3 \times 3$ and stride larger than $1$, since the forward rules of the Game of Life are based on just the 8 adjacent cells (see Section \ref{intro}). With the presented architecture, $F$ achieves nearly perfect accuracy on the forward prediction task, on the data generated according to the procedure described in Section \ref{dataset}.
 
@@ -261,7 +261,7 @@ Our best $R$ model, which we refer to as $R_A$ in Table \ref{tab:eval_results}, 
     \label{fig:mae-loss}
 \end{figure}
 
-\subsubsection{Choice of $F$} Figure \ref{fig:fwd_choices} summarizes the importance of pre-training a relaxed version of $F$. Despite its promise, updating $F$ continuously hasn't yielded expected gains yet.
+\subsubsection{Choice of $F$} Figure \ref{fig:fwd_choices} summarizes the importance of pre-training a relaxed version of $F$. Despite its promise, updating $F$ continuously hasn't yielded the expected gains yet.
 
 \begin{figure}
     \centering
@@ -287,7 +287,7 @@ The added benefit of having input $z$ is that it allows to generate many differe
 
 \subsubsection{Promise of GCN}
 \label{promise}
-As we mentioned before, to train the winning model $R_A$, we first trained $F$ until convergence, then $R$ until convergence. Updating $F$ in a loop as outlined in algorithm \ref{gcn_alg} hasn't yielded improved outcomes in our experiments so far. However, we speculate that GCN may still provide value after careful hyper-parameter tuning. The reason for this suspicion is based on analysis of Figure \ref{fig:mae-loss}, representing training history of $R_A$. We observe smooth and stable improvement in both MAE and loss in the initial phase of training (left side of the vertical red line), which suddenly changes to a significant improvement in loss and degradation in MAE at the same time (right side of the vertical red line). This suggests that $R$ started overfitting to $F$. Updating $F$ continuously to better handle $R$'s output distribution may prevent this problem.
+As we mentioned before, to train the winning model $R_A$, we first trained $F$ until convergence, then $R$ until convergence. Updating $F$ in a loop as outlined in Algorithm \ref{gcn_alg} hasn't yielded improved outcomes in our experiments so far. However, we speculate that GCN may still provide value after careful hyper-parameter tuning. The reason for this suspicion is based on analysis of Figure \ref{fig:mae-loss}, representing training history of $R_A$. We observe smooth and stable improvement in both MAE and loss in the initial phase of training (left side of the vertical red line), which suddenly changes to a significant improvement in loss and degradation in MAE at the same time (right side of the vertical red line). This suggests that $R$ started overfitting to $F$. Updating $F$ continuously to better handle $R$'s output distribution may prevent this problem.
 
 
 \subsubsection{Impact of weight initialization}
